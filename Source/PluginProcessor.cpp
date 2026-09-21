@@ -1367,16 +1367,24 @@ bool VirtualJVProcessor::isMidiEffect() const { return false; }
 double VirtualJVProcessor::getTailLengthSeconds() const { return 0.0; }
 
 int VirtualJVProcessor::getNumPrograms() {
+  // The CONTIGUOUS ROM range starting at index 0 - what a host iterating 0..N-1 through
+  // getProgramName() can actually see. User-saved patches are NOT counted: they live in
+  // patchInfos[]'s separate tail at romPatchCapacity+ (see PluginProcessor.h), far beyond
+  // this range, so adding them here only produced N empty names at the end of the host's
+  // list without ever exposing the user patches themselves.
   return 65                // internal
          + 65              // bank A
          + 65              // bank B
          + totalPatchesExp // expansions
-         + numUserPatches  // user-saved patches (Browse tab's "User" bank)
       ;
 }
 
 int VirtualJVProcessor::getCurrentProgram() {
-  return 0; // TODO
+  // Only meaningful to a host within 0..getNumPrograms()-1 - a user patch (index >=
+  // romPatchCapacity) has no host-visible program number, report 0 like "nothing loaded".
+  if (currentPatchIndex >= 0 && currentPatchIndex < getNumPrograms())
+    return currentPatchIndex;
+  return 0;
 }
 
 void VirtualJVProcessor::setCurrentProgram(int index) {
@@ -2104,6 +2112,7 @@ void VirtualJVProcessor::changeProgramName(int /* index */,
 void VirtualJVProcessor::prepareToPlay(double sampleRate,
                                              int samplesPerBlock) {
   keyboardCollector.reset(sampleRate);
+  midiRemapScratch.ensureSize(4096);
 
   dspLoadMeasurer.reset(sampleRate, samplesPerBlock);
 }
@@ -2144,14 +2153,17 @@ void VirtualJVProcessor::processBlock(juce::AudioBuffer<float> &buffer, juce::Mi
   // filter just below that (so what you record matches whichever track you actually meant).
   if (keyboardMidiRemap)
   {
-    juce::MidiBuffer remapped;
+    // midiRemapScratch is a member (pre-sized in prepareToPlay) rather than a local so this
+    // doesn't allocate on the audio thread every block; swapWith() exchanges storage, so
+    // both buffers keep their capacity across blocks.
+    midiRemapScratch.clear();
     for (const auto metadata : midiMessages)
     {
       auto message = metadata.getMessage();
       message.setChannel(keyboardMidiChannel);
-      remapped.addEvent(message, metadata.samplePosition);
+      midiRemapScratch.addEvent(message, metadata.samplePosition);
     }
-    midiMessages.swapWith(remapped);
+    midiMessages.swapWith(midiRemapScratch);
   }
 
   mcuLock.enter();
@@ -2330,9 +2342,17 @@ void VirtualJVProcessor::getStateInformation(juce::MemoryBlock &destData)
   destData.replaceAll(&status, sizeof(DataToSave));
 }
 
-void VirtualJVProcessor::setStateInformation(const void *data, int /* sizeInBytes */)
+void VirtualJVProcessor::setStateInformation(const void *data, int sizeInBytes)
 {
+  // A shorter blob (older/foreign plugin state, truncated project) would otherwise be read
+  // past its end straight into `status` - keep whatever is currently loaded instead.
+  if (data == nullptr || sizeInBytes < static_cast<int>(sizeof(DataToSave)))
+    return;
   memcpy(&status, data, sizeof(DataToSave));
+  // Same defence as setCurrentProgram()'s expansionI check: an out-of-range index would
+  // read past expansionsDescr[] below.
+  if (status.currentExpansion < 0 || status.currentExpansion >= NUM_EXPS)
+    status.currentExpansion = 0;
 
   mcuLock.enter();
 

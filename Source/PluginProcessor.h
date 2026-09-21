@@ -437,6 +437,8 @@ private:
 
     // VirtualKeyboard support - see the VirtualKeyboardHost overrides above.
     juce::MidiMessageCollector keyboardCollector;
+    // Scratch buffer for the MIDI Remap pass in processBlock() - see its comment there.
+    juce::MidiBuffer midiRemapScratch;
     std::array<std::atomic<bool>, 128> noteActiveTable{};
     int keyboardMidiChannel = 1;
     bool keyboardMidiRemap = false;
