@@ -71,6 +71,10 @@ public:
 
   VirtualJVProcessor &processor;
 
+  // Called right after a click/tap on a patch row has loaded it (setCurrentProgram()) - the
+  // Android app's HOLD button uses it to re-strike its held note on each newly picked patch.
+  std::function<void()> onPatchSelected;
+
   int activeColumns = 1;
   int currentRowsPerColumn = 1;
 
@@ -224,9 +228,13 @@ public:
       int selected = owner->getSelectedRow() + startI;
       if (selected >= 0 &&
           selected < parent->processor.patchInfoPerGroup[groupI].size())
+      {
         parent->processor.setCurrentProgram(
             parent->processor.patchInfoPerGroup[groupI][selected]
                 ->iInList);
+        if (parent->onPatchSelected)
+          parent->onPatchSelected();
+      }
     }
 
     // Right-click -> "Send to Performance Part N" (Alan's request, 2026-09-07/08). JUCE's

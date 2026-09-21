@@ -28,6 +28,25 @@
 #include "sequencer/JivSequencerPanel.h"
 #include "sequencer/JivSequencerGridPanel.h"
 
+// Browse view's own test-note button (Alan's request, 2026-09-21, same as the D-110 Android port's
+// Soundbanks view: no on-screen keyboard is visible in Browse, so there was no way to hear a
+// patch without leaving the screen). Plays while held, like a piano key: mouseDown -> note on,
+// mouseUp -> note off. The pitch is set separately by the PITCH button next to it.
+class HeldNoteButton : public juce::TextButton {
+public:
+	std::function<void()> onPress;
+	std::function<void()> onRelease;
+
+	void mouseDown(const juce::MouseEvent &e) override {
+		juce::TextButton::mouseDown(e);
+		if (onPress) onPress();
+	}
+	void mouseUp(const juce::MouseEvent &e) override {
+		juce::TextButton::mouseUp(e);
+		if (onRelease) onRelease();
+	}
+};
+
 class MainComponent : public juce::Component, private juce::Timer {
 public:
 	// The app's own external files dir - the one location the native core can always read with
@@ -60,6 +79,7 @@ public:
 		addAndMakeVisible(panelDisplay);
 		addAndMakeVisible(keyboard);
 		createPatchDependentViews();
+		wireUpBrowseTestNote();
 
 		menuButton.setButtonText(juce::String::fromUTF8("\xe2\x98\xb0")); // U+2630 "hamburger"
 		menuButton.onClick = [this] { showMainMenu(); };
@@ -147,7 +167,23 @@ public:
 		if (!inSequencer) {
 			auto row = area.removeFromTop(44);
 			menuButton.setBounds(row.removeFromRight(48).reduced(4));
+			// NOTE / HOLD / PITCH, leftmost on this same row, only in Browse (see
+			// wireUpBrowseTestNote()) - the status text keeps whatever is left.
+			const bool inBrowse = currentView == View::Browse;
+			testNoteButton.setVisible(inBrowse);
+			holdButton.setVisible(inBrowse);
+			pitchButton.setVisible(inBrowse);
+			if (inBrowse) {
+				const int btnW = juce::jmax(64, juce::roundToInt(row.getWidth() * 0.2f));
+				testNoteButton.setBounds(row.removeFromLeft(btnW).reduced(2, 4));
+				holdButton.setBounds(row.removeFromLeft(btnW).reduced(2, 4));
+				pitchButton.setBounds(row.removeFromLeft(btnW).reduced(2, 4));
+			}
 			statusLabel.setBounds(row.reduced(8, 4));
+		} else {
+			testNoteButton.setVisible(false);
+			holdButton.setVisible(false);
+			pitchButton.setVisible(false);
 		}
 
 		panelDisplay.setVisible(currentView == View::Keyboard);
@@ -190,6 +226,7 @@ private:
 		if (patchBrowser) removeChildComponent(patchBrowser.get());
 		patchBrowser = std::make_unique<PatchBrowser>(processor);
 		addChildComponent(*patchBrowser);
+		patchBrowser->onPatchSelected = [this] { retriggerHeldTestNote(); };
 
 		if (sequencerPanel) removeChildComponent(sequencerPanel.get());
 		sequencerPanel = std::make_unique<JivSequencerPanel>(processor);
@@ -206,8 +243,123 @@ private:
 		sequencerGridPanel->onBarMenuButtonExtra = [this](juce::PopupMenu &m) { buildAppMenu(m); };
 	}
 
+	// Browse view's NOTE (left: plays testNotePitch while pressed), HOLD (sustains it, and
+	// re-strikes it on every newly picked patch so each sound's attack can be compared) and
+	// PITCH (opens a slider to set testNotePitch) buttons - ported from the D-110 Android port's
+	// Soundbanks view (wireUpSoundbankTestNote()). The note goes out exactly like a keyboard key:
+	// on the keyboard's MIDI channel when remap is on, else on all 16 channels.
+	void wireUpBrowseTestNote() {
+		testNoteButton.setButtonText(juce::MidiMessage::getMidiNoteName(testNotePitch, true, true, 4));
+		testNoteButton.onPress = [this] { sendTestNote(testNotePitch, 0.9f, true); testButtonNote = testNotePitch; };
+		testNoteButton.onRelease = [this] {
+			if (testButtonNote < 0) return;
+			sendTestNote(testButtonNote, 0.0f, false);
+			testButtonNote = -1;
+		};
+		addChildComponent(testNoteButton);
+
+		holdButton.setButtonText("HOLD");
+		holdButton.setClickingTogglesState(true);
+		holdButton.onClick = [this] {
+			if (holdButton.getToggleState()) startHeldTestNote();
+			else stopHeldTestNote();
+			updateHoldButtonColour();
+		};
+		addChildComponent(holdButton);
+		updateHoldButtonColour();
+
+		pitchButton.setButtonText("PITCH");
+		pitchButton.onClick = [this] {
+			auto *aw = new juce::AlertWindow("Test note pitch", {}, juce::AlertWindow::NoIcon);
+			// A slider over the full MIDI range whose text box shows the note name. Applied
+			// silently on "Set" (no live audition while dragging - the D-110 port found that
+			// sounded artefacted). addCustomComponent() takes no ownership, so both are
+			// deleted explicitly in the callback.
+			auto *slider = new juce::Slider(juce::Slider::LinearHorizontal, juce::Slider::TextBoxBelow);
+			slider->setSize(280, 60);
+			slider->setRange(0.0, 127.0, 1.0);
+			slider->setValue(testNotePitch, juce::dontSendNotification);
+			slider->textFromValueFunction = [](double v) {
+				return juce::MidiMessage::getMidiNoteName(int(v), true, true, 4);
+			};
+			slider->updateText();
+			aw->addCustomComponent(slider);
+			aw->addButton("Set", 1, juce::KeyPress(juce::KeyPress::returnKey));
+			aw->addButton("Cancel", 0, juce::KeyPress(juce::KeyPress::escapeKey));
+			aw->enterModalState(true, juce::ModalCallbackFunction::create([this, aw, slider](int result) {
+				if (result == 1) {
+					testNotePitch = int(slider->getValue());
+					testNoteButton.setButtonText(juce::MidiMessage::getMidiNoteName(testNotePitch, true, true, 4));
+				}
+				delete slider;
+				delete aw;
+			}));
+		};
+		addChildComponent(pitchButton);
+	}
+
+	void sendTestNote(int note, float velocity, bool on) {
+		if (processor.getMidiRemap()) {
+			processor.injectTestNote(processor.getKeyboardMidiChannel(), note, velocity, on);
+		} else {
+			for (int ch = 1; ch <= 16; ++ch) processor.injectTestNote(ch, note, velocity, on);
+		}
+	}
+
+	void startHeldTestNote() {
+		holdActive = true;
+		heldNote = testNotePitch;
+		sendTestNote(heldNote, 0.9f, true);
+	}
+
+	void stopHeldTestNote() {
+		++retriggerToken;
+		if (heldNote >= 0) sendTestNote(heldNote, 0.0f, false);
+		holdActive = false;
+		heldNote = -1;
+		holdButton.setToggleState(false, juce::dontSendNotification);
+		updateHoldButtonColour();
+	}
+
+	// While HOLD is on, picking another patch kills the held note and strikes it again on the
+	// new sound. Delayed: loading a patch can make the firmware reset (Patch <-> Rhythm switch,
+	// or another expansion ROM - see VirtualJVProcessor::setCurrentProgram()), and a note sent
+	// during that reset would be lost. retriggerToken coalesces rapid successive picks.
+	void retriggerHeldTestNote() {
+		if (!holdActive) return;
+		if (heldNote >= 0) sendTestNote(heldNote, 0.0f, false);
+		heldNote = -1;
+		const int token = ++retriggerToken;
+		juce::Component::SafePointer<MainComponent> safeThis(this);
+		juce::Timer::callAfterDelay(400, [safeThis, token] {
+			auto *self = safeThis.getComponent();
+			if (self == nullptr || token != self->retriggerToken || !self->holdActive) return;
+			self->heldNote = self->testNotePitch;
+			self->sendTestNote(self->heldNote, 0.9f, true);
+		});
+	}
+
+	// Explicit colours rather than relying on the LookAndFeel's own toggle colouring.
+	void updateHoldButtonColour() {
+		const auto fill = holdActive ? juce::Colour(0xff6ab81f) : juce::Colour(0xff26262c);
+		const auto text = holdActive ? juce::Colour(0xff0a0a0c) : juce::Colour(0xff8ede4a);
+		holdButton.setColour(juce::TextButton::buttonColourId, fill);
+		holdButton.setColour(juce::TextButton::buttonOnColourId, fill);
+		holdButton.setColour(juce::TextButton::textColourOffId, text);
+		holdButton.setColour(juce::TextButton::textColourOnId, text);
+		for (juce::TextButton *b : {static_cast<juce::TextButton *>(&testNoteButton), &pitchButton}) {
+			b->setColour(juce::TextButton::buttonColourId, juce::Colour(0xff26262c));
+			b->setColour(juce::TextButton::textColourOffId, juce::Colour(0xff8ede4a));
+			b->setColour(juce::TextButton::textColourOnId, juce::Colour(0xff8ede4a));
+		}
+		holdButton.repaint();
+	}
+
 	void setView(View v) {
 		if (v == currentView) return;
+		// A note held for Browse auditioning would otherwise keep sounding with no visible way
+		// to stop it once the HOLD button is hidden.
+		if (currentView == View::Browse && holdActive) stopHeldTestNote();
 		currentView = v;
 		resized();
 	}
@@ -411,6 +563,15 @@ private:
 
 	juce::TextButton menuButton;
 	juce::Label statusLabel;
+
+	// Browse view's NOTE / HOLD / PITCH buttons - see wireUpBrowseTestNote().
+	HeldNoteButton testNoteButton;
+	juce::TextButton holdButton, pitchButton;
+	int testNotePitch = 48; // C3 in this app's convention (getMidiNoteName(n, true, true, 4))
+	int testButtonNote = -1; // what the NOTE button last struck, -1 = nothing sounding
+	bool holdActive = false;
+	int heldNote = -1;
+	int retriggerToken = 0;
 
 	std::unique_ptr<juce::FileChooser> fileChooser;
 

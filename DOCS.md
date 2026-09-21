@@ -100,7 +100,9 @@ reach that folder on Android 11+ (scoped storage blocks every app but the owner)
 the in-app picker is the recommended route.
 
 Browse: a long-press (~0.5 s, without moving) on a patch opens the same "Send to Performance Part
-N" / "Send to Sequencer" menu a desktop right-click does. Sequencer: hamburger menu (or the ☰
+N" / "Send to Sequencer" menu a desktop right-click does. Browse also has NOTE / HOLD / PITCH buttons on its top row (no keyboard is visible there): NOTE
+plays the chosen pitch while pressed, HOLD sustains it and re-strikes it on every newly picked
+patch, PITCH opens a slider to choose the note. Sequencer: hamburger menu (or the ☰
 button in the sequencer's own transport row) -> **Piano Roll Sequencer** switches the drawer to the
 piano-roll editor (see below); the pitch rows start at a finger-sized height (ROW button to change).
 
