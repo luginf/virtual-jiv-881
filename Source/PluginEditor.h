@@ -13,6 +13,7 @@
 #include "PluginProcessor.h"
 
 #include "sequencer/JivSequencerPanel.h"
+#include "sequencer/JivSequencerGridPanel.h"
 #include "ui/widgets/CollapseHandle.h"
 #include "ui/widgets/LCDisplay.h"
 #include "ui/widgets/TabBar.h"
@@ -105,8 +106,16 @@ private:
     // nullptr in every VST3/AU/LV2 instance, and in a Standalone instance too until Alan turns
     // the feature on in Settings.
     CollapseHandle sequencerHandle;
+    // Exactly one of these two exists while the sequencer is on: the default strip, or the
+    // piano-roll view when processor.getSequencerGridMode() (see refreshSequencerVisibility()).
     std::unique_ptr<JivSequencerPanel> sequencerPanel;
+    std::unique_ptr<JivSequencerGridPanel> sequencerGridPanel;
     bool sequencerCollapsed = false;
+    juce::Component *activeSequencerView() const
+    {
+        if (sequencerGridPanel != nullptr) return sequencerGridPanel.get();
+        return sequencerPanel.get();
+    }
 
     juce::Viewport editCommonViewport, editTone1Viewport, editTone2Viewport, editTone3Viewport,
                    editTone4Viewport, editRhythmViewport, settingsViewport, interfaceViewport;

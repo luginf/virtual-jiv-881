@@ -26,6 +26,7 @@
 #include "ui/PatchBrowser.h"
 #include "ui/widgets/VirtualKeyboard.h"
 #include "sequencer/JivSequencerPanel.h"
+#include "sequencer/JivSequencerGridPanel.h"
 
 class MainComponent : public juce::Component, private juce::Timer {
 public:
@@ -50,6 +51,11 @@ public:
 		// whatever they already had, and newly-assignable patches only matter once the user
 		// visits Browse anyway.
 		processor.setSequencerEnabled(true);
+		// The piano-roll view's pitch rows default to the 14px mouse size, far too small for a
+		// finger - give a phone a taller first-run default (the ROW button steps it from there,
+		// and the choice is persisted by the processor).
+		if (processor.getGridRowHeight() == 0)
+			processor.setGridRowHeight(28);
 
 		addAndMakeVisible(panelDisplay);
 		addAndMakeVisible(keyboard);
@@ -147,12 +153,17 @@ public:
 		panelDisplay.setVisible(currentView == View::Keyboard);
 		keyboard.setVisible(currentView == View::Keyboard);
 		patchBrowser->setVisible(currentView == View::Browse);
-		sequencerPanel->setVisible(currentView == View::Sequencer);
+		// Strip or piano roll, per processor.getSequencerGridMode() (both views exist; only the
+		// chosen one is ever shown).
+		const bool pianoRoll = processor.getSequencerGridMode();
+		sequencerPanel->setVisible(currentView == View::Sequencer && !pianoRoll);
+		sequencerGridPanel->setVisible(currentView == View::Sequencer && pianoRoll);
 
 		if (currentView == View::Browse) {
 			patchBrowser->setBounds(area);
 		} else if (currentView == View::Sequencer) {
 			sequencerPanel->setBounds(area);
+			sequencerGridPanel->setBounds(area);
 		} else {
 			const int panelH = juce::roundToInt(panelDisplay.heightForWidth((float)area.getWidth()));
 			panelDisplay.setBounds(area.removeFromTop(panelH));
@@ -186,6 +197,13 @@ private:
 		// See buildAppMenu()'s own comment: the sequencer hides the app's own hamburger row to
 		// get its full height, so its bar-menu button becomes the only way back to it.
 		sequencerPanel->onBarMenuButtonExtra = [this](juce::PopupMenu &m) { buildAppMenu(m); };
+
+		// Same again for the piano-roll view (its transport row has the identical bar-menu
+		// button, fed the same app menu - which is also where it is switched back to the strip).
+		if (sequencerGridPanel) removeChildComponent(sequencerGridPanel.get());
+		sequencerGridPanel = std::make_unique<JivSequencerGridPanel>(processor);
+		addChildComponent(*sequencerGridPanel);
+		sequencerGridPanel->onBarMenuButtonExtra = [this](juce::PopupMenu &m) { buildAppMenu(m); };
 	}
 
 	void setView(View v) {
@@ -318,6 +336,10 @@ private:
 		          [this] { setView(currentView == View::Browse ? View::Keyboard : View::Browse); });
 		m.addItem(currentView == View::Sequencer ? "Front Panel" : "Sequencer",
 		          [this] { setView(currentView == View::Sequencer ? View::Keyboard : View::Sequencer); });
+		m.addItem("Piano Roll Sequencer", true, processor.getSequencerGridMode(), [this] {
+			processor.setSequencerGridMode(!processor.getSequencerGridMode());
+			resized();
+		});
 		// VirtualKeyboard::showContextMenu() is the exact same channel/remap/PC-keyboard menu
 		// the desktop keyboard's right-click shows - reached here directly instead of
 		// reimplementing it, since there's no right mouse button on a touchscreen.
@@ -385,6 +407,7 @@ private:
 	VirtualKeyboard keyboard;
 	std::unique_ptr<PatchBrowser> patchBrowser;
 	std::unique_ptr<JivSequencerPanel> sequencerPanel;
+	std::unique_ptr<JivSequencerGridPanel> sequencerGridPanel;
 
 	juce::TextButton menuButton;
 	juce::Label statusLabel;

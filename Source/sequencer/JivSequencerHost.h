@@ -137,4 +137,16 @@ public:
 	// have to remember to flip back to the Performance tab themselves first. No-op default since
 	// nothing else implements this host.
 	virtual void ensurePerformanceMode() {}
+
+	// Optional: sounds one note on a track's own live channel right now, so a click in the grid
+	// editor (JivSequencerGridPanel) is heard as the pitch it just placed or grabbed. Goes
+	// through the same path as the on-screen keyboard's own notes. A no-op by default (the
+	// grid editor just stays silent).
+	virtual void auditionTrackNote(int /*track*/, int /*note*/, int /*velocity*/, bool /*on*/) {}
+
+	// Optional: the grid editor's (JivSequencerGridPanel) row height in pixels, so the choice
+	// survives a restart. 0 = never set (the panel then uses its 14px desktop default; the
+	// Android app sets a larger one for fingers the first time it runs).
+	virtual int getGridRowHeight() const { return 0; }
+	virtual void setGridRowHeight(int /*pixels*/) {}
 };

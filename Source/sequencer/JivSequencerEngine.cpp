@@ -313,6 +313,7 @@ void JivSequencerEngine::stopStepRecording() {
 void JivSequencerEngine::commitStepInternal() {
 	const double len = currentStepBeats();
 	if (armedTrack >= 0 && len > 0.0 && !stepHeldNotes.empty()) {
+		const juce::SpinLock::ScopedLockType lock(editLock);
 		auto &events = trackAt(armedTrack).events;
 		const int channel = channelForTrack(armedTrack);
 		for (const auto &h : stepHeldNotes) {
@@ -499,6 +500,10 @@ juce::String JivSequencerEngine::trackLabel(int t) const {
 }
 
 void JivSequencerEngine::pushUndoSnapshot(const juce::String &description) {
+	// Copies every track, including the runtime playback state inside them that renderInto()
+	// mutates on the audio thread - hence the lock (a few thousand events copy in well under
+	// a millisecond).
+	const juce::SpinLock::ScopedLockType lock(editLock);
 	if (undoStack.size() >= kMaxUndoDepth) undoStack.erase(undoStack.begin());
 	undoStack.push_back(UndoSnapshot{tracks, songs, currentSlot, description});
 	redoStack.clear();
@@ -506,6 +511,7 @@ void JivSequencerEngine::pushUndoSnapshot(const juce::String &description) {
 
 void JivSequencerEngine::undo() {
 	if (undoStack.empty()) return;
+	const juce::SpinLock::ScopedLockType lock(editLock);
 	auto snapshot = std::move(undoStack.back());
 	undoStack.pop_back();
 	if (redoStack.size() >= kMaxUndoDepth) redoStack.erase(redoStack.begin());
@@ -517,6 +523,7 @@ void JivSequencerEngine::undo() {
 
 void JivSequencerEngine::redo() {
 	if (redoStack.empty()) return;
+	const juce::SpinLock::ScopedLockType lock(editLock);
 	auto snapshot = std::move(redoStack.back());
 	redoStack.pop_back();
 	if (undoStack.size() >= kMaxUndoDepth) undoStack.erase(undoStack.begin());
@@ -657,29 +664,113 @@ JivSequencerEngine::eventsInBarRange(int trackIndex, int fromBar, int toBarInclu
 		// multi-bar range, though JivSequencerPanel's own event-list dialog only ever
 		// passes a single bar today.
 		const double barStart = std::floor(onBeat / bar) * bar;
-		out.push_back({ i, onBeat - barStart, ev->message.getNoteNumber(), int(ev->message.getVelocity()),
+		out.push_back({ i, onBeat - barStart, onBeat, ev->message.getNoteNumber(), int(ev->message.getVelocity()),
 		                 ev->noteOffObject != nullptr
 		                     ? ev->noteOffObject->message.getTimeStamp() - onBeat : 0.0 });
 	}
 	return out;
 }
 
+void JivSequencerEngine::releaseOrphanedNote(Track &track, int note, double oldOn, double oldOff, int newNote,
+                                               double newOn, double newOff) {
+	if (!playing) return;
+	if (!(oldOn <= positionBeats && positionBeats < oldOff)) return; // wasn't the one sounding
+	const auto it = std::find(track.soundingNotes.begin(), track.soundingNotes.end(), note);
+	if (it == track.soundingNotes.end()) return;
+	// Still sounding and still ending ahead of the playhead: its (new) note-off will fire on
+	// its own, nothing to do.
+	if (newNote == note && newOn <= positionBeats && positionBeats < newOff) return;
+	track.soundingNotes.erase(it);
+	track.pendingNoteOffs.push_back(note);
+}
+
+void JivSequencerEngine::sortNoteOffsFirst(juce::MidiMessageSequence &seq) {
+	std::stable_sort(seq.begin(), seq.end(),
+	                 [](const juce::MidiMessageSequence::MidiEventHolder *a,
+	                    const juce::MidiMessageSequence::MidiEventHolder *b) {
+		                 const double ta = a->message.getTimeStamp(), tb = b->message.getTimeStamp();
+		                 if (ta != tb) return ta < tb;
+		                 return a->message.isNoteOff() && b->message.isNoteOn();
+	                 });
+}
+
 void JivSequencerEngine::deleteNoteEvent(int trackIndex, int index) {
 	jassert(trackIndex >= 0 && trackIndex < kMaxTracks);
-	auto &events = trackAt(trackIndex).events;
+	const juce::SpinLock::ScopedLockType lock(editLock);
+	auto &track = trackAt(trackIndex);
+	auto &events = track.events;
 	if (index < 0 || index >= events.getNumEvents()) return;
+	const auto *ev = events.getEventPointer(index);
+	if (ev->message.isNoteOn() && ev->noteOffObject != nullptr) {
+		const double on = ev->message.getTimeStamp();
+		releaseOrphanedNote(track, ev->message.getNoteNumber(), on, ev->noteOffObject->message.getTimeStamp(), -1,
+		                    0.0, 0.0);
+	}
 	events.deleteEvent(index, true); // true = also remove the matching note-off, if any
 }
 
 void JivSequencerEngine::setNoteEventPitch(int trackIndex, int index, int newNote) {
 	jassert(trackIndex >= 0 && trackIndex < kMaxTracks);
-	auto &events = trackAt(trackIndex).events;
+	const juce::SpinLock::ScopedLockType lock(editLock);
+	auto &track = trackAt(trackIndex);
+	auto &events = track.events;
 	if (index < 0 || index >= events.getNumEvents()) return;
 	auto *ev = events.getEventPointer(index);
 	if (!ev->message.isNoteOn()) return;
 	const int note = juce::jlimit(0, 127, newNote);
+	if (ev->noteOffObject != nullptr)
+		releaseOrphanedNote(track, ev->message.getNoteNumber(), ev->message.getTimeStamp(),
+		                    ev->noteOffObject->message.getTimeStamp(), note, ev->message.getTimeStamp(),
+		                    ev->noteOffObject->message.getTimeStamp());
 	ev->message.setNoteNumber(note);
 	if (ev->noteOffObject != nullptr) ev->noteOffObject->message.setNoteNumber(note);
+}
+
+int JivSequencerEngine::addNote(int trackIndex, double startBeat, double endBeat, int note, int velocity) {
+	jassert(trackIndex >= 0 && trackIndex < kMaxTracks);
+	if (startBeat < 0.0 || endBeat <= startBeat) return -1;
+	const juce::SpinLock::ScopedLockType lock(editLock);
+	auto &events = trackAt(trackIndex).events;
+	const int channel = channelForTrack(trackIndex);
+	auto on = juce::MidiMessage::noteOn(channel, juce::jlimit(0, 127, note),
+	                                    static_cast<juce::uint8>(juce::jlimit(1, 127, velocity)));
+	on.setTimeStamp(startBeat);
+	auto off = juce::MidiMessage::noteOff(channel, juce::jlimit(0, 127, note));
+	off.setTimeStamp(endBeat);
+	auto *onHolder = events.addEvent(on);
+	events.addEvent(off);
+	sortNoteOffsFirst(events);
+	events.updateMatchedPairs();
+	return events.getIndexOf(onHolder);
+}
+
+int JivSequencerEngine::updateNoteEvent(int trackIndex, int index, double startBeat, double endBeat, int note,
+                                          int velocity) {
+	jassert(trackIndex >= 0 && trackIndex < kMaxTracks);
+	if (startBeat < 0.0 || endBeat <= startBeat) return -1;
+	const juce::SpinLock::ScopedLockType lock(editLock);
+	auto &track = trackAt(trackIndex);
+	auto &events = track.events;
+	if (index < 0 || index >= events.getNumEvents()) return -1;
+	const auto *old = events.getEventPointer(index);
+	if (!old->message.isNoteOn()) return -1;
+	const int newNote = juce::jlimit(0, 127, note);
+	const double oldOn = old->message.getTimeStamp();
+	const double oldOff = old->noteOffObject != nullptr ? old->noteOffObject->message.getTimeStamp() : oldOn;
+	if (old->noteOffObject != nullptr)
+		releaseOrphanedNote(track, old->message.getNoteNumber(), oldOn, oldOff, newNote, startBeat, endBeat);
+	events.deleteEvent(index, true);
+
+	const int channel = channelForTrack(trackIndex);
+	auto on = juce::MidiMessage::noteOn(channel, newNote, static_cast<juce::uint8>(juce::jlimit(1, 127, velocity)));
+	on.setTimeStamp(startBeat);
+	auto off = juce::MidiMessage::noteOff(channel, newNote);
+	off.setTimeStamp(endBeat);
+	auto *onHolder = events.addEvent(on);
+	events.addEvent(off);
+	sortNoteOffsFirst(events);
+	events.updateMatchedPairs();
+	return events.getIndexOf(onHolder);
 }
 
 JivSequencerEngine::Track &JivSequencerEngine::songTrackAt(int slot, int track) {
@@ -849,6 +940,7 @@ void JivSequencerEngine::setSlotTrackChannelOverride(int slot, int track, int ch
 void JivSequencerEngine::renderInto(juce::MidiBuffer &midiMessages, int numSamples, double sampleRate,
                                       std::vector<MetronomeClick> *clicksOut) {
 	if (numSamples <= 0 || sampleRate <= 0.0 || !playing) return;
+	const juce::SpinLock::ScopedLockType editGuard(editLock);
 
 	const double beatsPerSample = (tempoBpm / 60.0) / sampleRate;
 	int samplesRendered = 0;
@@ -965,6 +1057,14 @@ void JivSequencerEngine::renderInto(juce::MidiBuffer &midiMessages, int numSampl
 			// away, so it stays silent for the whole take rather than only over whatever range
 			// turns out to get erased.
 			auto &track = trackAt(t);
+			// Notes a single-note edit orphaned mid-sound (see releaseOrphanedNote()) - shut off
+			// first thing, whether or not the track is muted right now.
+			if (!track.pendingNoteOffs.empty()) {
+				const int channel = channelForTrack(t);
+				for (int note : track.pendingNoteOffs)
+					midiMessages.addEvent(juce::MidiMessage::noteOff(channel, note), samplesRendered);
+				track.pendingNoteOffs.clear();
+			}
 			// Muting (or losing solo focus) mid-note used to just skip this track outright below,
 			// which also skipped the pending note-off already sitting in its own timeline for
 			// whatever was sounding - a stuck note until the next global midiPanic(). soundingNotes

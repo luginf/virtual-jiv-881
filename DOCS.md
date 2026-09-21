@@ -99,6 +99,11 @@ started. Alternatively `adb push` the same files into
 reach that folder on Android 11+ (scoped storage blocks every app but the owner), which is why
 the in-app picker is the recommended route.
 
+Browse: a long-press (~0.5 s, without moving) on a patch opens the same "Send to Performance Part
+N" / "Send to Sequencer" menu a desktop right-click does. Sequencer: hamburger menu (or the ☰
+button in the sequencer's own transport row) -> **Piano Roll Sequencer** switches the drawer to the
+piano-roll editor (see below); the pitch rows start at a finger-sized height (ROW button to change).
+
 Not yet done: no app store distribution, debug build only, verified so far only by compiling -
 real-device testing still needed (see `.claude/dev-notes/android.md` for the D-110 sibling
 project's own catalogue of JUCE/Android gotchas this port leans on).

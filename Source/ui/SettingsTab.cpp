@@ -169,6 +169,10 @@ SettingsTab::SettingsTab(VirtualJVProcessor &p) : processor(p)
     addAndMakeVisible(sequencerToggle);
     sequencerToggle.setToggleState(processor.getSequencerEnabled(), juce::dontSendNotification);
     sequencerToggle.addListener(this);
+
+    addAndMakeVisible(sequencerGridToggle);
+    sequencerGridToggle.setToggleState(processor.getSequencerGridMode(), juce::dontSendNotification);
+    sequencerGridToggle.addListener(this);
   }
 
   startTimerHz(4);
@@ -240,8 +244,9 @@ void SettingsTab::resized()
 
   // Sequencer on/off (Alan's request, 2026-09-09) - same row as Display, right-aligned; only
   // present at all (see the constructor) in a Standalone build.
-  sequencerSectionHeaderLabel.setBounds(460, displaySectionTop, 120, 22);
-  sequencerToggle.setBounds(580, displaySectionTop, 220, 24);
+  sequencerSectionHeaderLabel.setBounds(460, displaySectionTop, 90, 22);
+  sequencerToggle.setBounds(550, displaySectionTop, 140, 24);
+  sequencerGridToggle.setBounds(690, displaySectionTop, 120, 24);
 
   // ROM Folder section (Alan's request, 2026-09-08), between Display and Audio/MIDI Settings -
   // see refreshRomSection().
@@ -307,6 +312,9 @@ void SettingsTab::buttonClicked(juce::Button *button)
     break;
   case SequencerEnabled:
     processor.setSequencerEnabled(sequencerToggle.getToggleState());
+    break;
+  case SequencerGrid:
+    processor.setSequencerGridMode(sequencerGridToggle.getToggleState());
     break;
   }
 }

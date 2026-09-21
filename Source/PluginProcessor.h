@@ -396,6 +396,21 @@ public:
     bool getSequencerEnabled() const { return sequencerEnabled; }
     void setSequencerEnabled(bool enabled);
 
+    // Piano-roll (grid) view of the sequencer drawer instead of the default strip - see
+    // JivSequencerGridPanel.h. Persisted with the grid row height in one small file
+    // (sequencerGridSettingsFile() in the .cpp, same convention as sequencer_enabled.txt).
+    // Only ever a UI choice: both views drive the very same engine. setSequencerGridMode()
+    // tells the active desktop editor to swap its panel; the Android app polls it itself.
+    bool sequencerGridMode = false;
+    bool getSequencerGridMode() const { return sequencerGridMode; }
+    void setSequencerGridMode(bool grid);
+    int gridRowHeight = 0;
+    int getGridRowHeight() const override { return gridRowHeight; }
+    void setGridRowHeight(int pixels) override;
+    // Same path as the on-screen keyboard's own notes (injectTestNote()), on the track's live
+    // channel - lets the grid editor sound a note as it is placed or grabbed.
+    void auditionTrackNote(int track, int note, int velocity, bool on) override;
+
     // Where the sequencer's own 4 song slots survive an app restart - standalone-only state
     // (see this whole block's own top comment), so unlike Performance sessions this has no DAW
     // project to also round-trip through; a plain file is the only persistence that makes

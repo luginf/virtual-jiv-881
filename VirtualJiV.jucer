@@ -100,6 +100,8 @@
         <FILE id="JsHost" name="JivSequencerHost.h" compile="0" resource="0" file="Source/sequencer/JivSequencerHost.h"/>
         <FILE id="JsPan1" name="JivSequencerPanel.cpp" compile="1" resource="0" file="Source/sequencer/JivSequencerPanel.cpp"/>
         <FILE id="JsPan2" name="JivSequencerPanel.h" compile="0" resource="0" file="Source/sequencer/JivSequencerPanel.h"/>
+        <FILE id="JsGrd1" name="JivSequencerGridPanel.cpp" compile="1" resource="0" file="Source/sequencer/JivSequencerGridPanel.cpp"/>
+        <FILE id="JsGrd2" name="JivSequencerGridPanel.h" compile="0" resource="0" file="Source/sequencer/JivSequencerGridPanel.h"/>
         <FILE id="JsSf1" name="JivSequencerSongsFile.cpp" compile="1" resource="0" file="Source/sequencer/JivSequencerSongsFile.cpp"/>
         <FILE id="JsSf2" name="JivSequencerSongsFile.h" compile="0" resource="0" file="Source/sequencer/JivSequencerSongsFile.h"/>
       </GROUP>

@@ -50,7 +50,7 @@ VirtualJVEditor::VirtualJVEditor(VirtualJVProcessor &p)
     {
         sequencerCollapsed = !sequencerCollapsed;
         sequencerHandle.setExpanded(!sequencerCollapsed);
-        if (sequencerPanel) sequencerPanel->setVisible(!sequencerCollapsed);
+        if (auto *view = activeSequencerView()) view->setVisible(!sequencerCollapsed);
         resized();
     };
 
@@ -255,8 +255,9 @@ void VirtualJVEditor::resized()
     // Second handle+drawer, only when the sequencer is actually turned on (see
     // refreshSequencerVisibility()) - both stay 0 otherwise, so the layout below is identical
     // to before this feature existed whenever it's off.
-    const int sequencerHandleH = sequencerPanel ? handleH : 0;
-    const int sequencerH = (sequencerPanel && !sequencerCollapsed) ? (int)JivSequencerPanel::kRefH : 0;
+    auto *sequencerView = activeSequencerView();
+    const int sequencerHandleH = sequencerView ? handleH : 0;
+    const int sequencerH = (sequencerView && !sequencerCollapsed) ? (int)JivSequencerPanel::kRefH : 0;
 
     // Top strip height depends on processor.displayMode (see PluginEditor.h's own comment on
     // lcd/panelDisplay): LcdOnly is the fixed 820x100 it's always been; the panel modes scale
@@ -279,11 +280,11 @@ void VirtualJVEditor::resized()
     tabs.setBounds(0, topAreaH, 820, tabsH);
     keyboardHandle.setBounds(0, topAreaH + tabsH, getWidth(), handleH);
     virtualKeyboard.setBounds(0, topAreaH + tabsH + handleH, getWidth(), keyboardH);
-    if (sequencerPanel)
+    if (sequencerView)
     {
         const int seqY = topAreaH + tabsH + handleH + keyboardH;
         sequencerHandle.setBounds(0, seqY, getWidth(), sequencerHandleH);
-        sequencerPanel->setBounds(0, seqY + sequencerHandleH, getWidth(), sequencerH);
+        sequencerView->setBounds(0, seqY + sequencerHandleH, getWidth(), sequencerH);
     }
 }
 
@@ -292,17 +293,35 @@ void VirtualJVEditor::refreshSequencerVisibility()
     const bool wantIt = processor.wrapperType == juce::AudioProcessor::wrapperType_Standalone
                          && processor.getSequencerEnabled();
 
-    if (wantIt && sequencerPanel == nullptr)
+    const bool wantGrid = wantIt && processor.getSequencerGridMode();
+
+    // Swap the view when the grid/strip choice changed (or drop both when turned off) - the
+    // engine and every song live in the processor, so a view is just a lens and can be
+    // destroyed/recreated freely.
+    if (!wantIt || wantGrid != (sequencerGridPanel != nullptr))
     {
-        sequencerPanel = std::make_unique<JivSequencerPanel>(processor);
-        addAndMakeVisible(*sequencerPanel);
-        addAndMakeVisible(sequencerHandle);
-        sequencerPanel->setVisible(!sequencerCollapsed);
+        sequencerPanel.reset();
+        sequencerGridPanel.reset();
     }
-    else if (!wantIt && sequencerPanel != nullptr)
+
+    if (wantIt && activeSequencerView() == nullptr)
+    {
+        if (wantGrid)
+        {
+            sequencerGridPanel = std::make_unique<JivSequencerGridPanel>(processor);
+            addAndMakeVisible(*sequencerGridPanel);
+        }
+        else
+        {
+            sequencerPanel = std::make_unique<JivSequencerPanel>(processor);
+            addAndMakeVisible(*sequencerPanel);
+        }
+        addAndMakeVisible(sequencerHandle);
+        activeSequencerView()->setVisible(!sequencerCollapsed);
+    }
+    else if (!wantIt)
     {
         sequencerHandle.setVisible(false);
-        sequencerPanel.reset();
     }
 
     resized();

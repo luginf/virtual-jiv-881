@@ -128,6 +128,27 @@ void savePersistedSequencerEnabled(bool enabled) {
   file.replaceWithText(enabled ? "1" : "0");
 }
 
+// Piano-roll view choice + its row height (see VirtualJVProcessor::sequencerGridMode) - one
+// small "<gridMode> <rowHeight>" file at the same fixed location as the settings above.
+juce::File sequencerGridSettingsFile() {
+  return appDataBaseDir().getChildFile("sequencer_grid.txt");
+}
+
+void loadPersistedSequencerGrid(bool &gridMode, int &rowHeight) {
+  auto file = sequencerGridSettingsFile();
+  if (!file.existsAsFile())
+    return;
+  auto tokens = juce::StringArray::fromTokens(file.loadFileAsString().trim(), " ", "");
+  gridMode = tokens[0].getIntValue() != 0;
+  rowHeight = juce::jlimit(0, 200, tokens[1].getIntValue());
+}
+
+void savePersistedSequencerGrid(bool gridMode, int rowHeight) {
+  auto file = sequencerGridSettingsFile();
+  file.getParentDirectory().createDirectory();
+  file.replaceWithText(juce::String(gridMode ? 1 : 0) + " " + juce::String(rowHeight));
+}
+
 void savePersistedDisplayMode(VirtualJVProcessor::DisplayMode mode) {
   auto file = displayModeSettingsFile();
   file.getParentDirectory().createDirectory();
@@ -172,8 +193,10 @@ VirtualJVProcessor::VirtualJVProcessor()
     return performanceParts[track].midiChannel;
   });
 
-  if (wrapperType == juce::AudioProcessor::wrapperType_Standalone)
+  if (wrapperType == juce::AudioProcessor::wrapperType_Standalone) {
     sequencerEnabled = loadPersistedSequencerEnabled();
+    loadPersistedSequencerGrid(sequencerGridMode, gridRowHeight);
+  }
 
   attemptLoadRoms();
 
@@ -1213,6 +1236,29 @@ void VirtualJVProcessor::setSequencerEnabled(bool enabled) {
   if (auto editor = getActiveEditor())
     if (auto e = dynamic_cast<VirtualJVEditor *>(editor))
       e->refreshSequencerVisibility();
+}
+
+void VirtualJVProcessor::setSequencerGridMode(bool grid) {
+  if (grid == sequencerGridMode)
+    return;
+  sequencerGridMode = grid;
+  savePersistedSequencerGrid(sequencerGridMode, gridRowHeight);
+
+  if (auto editor = getActiveEditor())
+    if (auto e = dynamic_cast<VirtualJVEditor *>(editor))
+      e->refreshSequencerVisibility();
+}
+
+void VirtualJVProcessor::setGridRowHeight(int pixels) {
+  pixels = juce::jlimit(0, 200, pixels);
+  if (pixels == gridRowHeight)
+    return;
+  gridRowHeight = pixels;
+  savePersistedSequencerGrid(sequencerGridMode, gridRowHeight);
+}
+
+void VirtualJVProcessor::auditionTrackNote(int track, int note, int velocity, bool on) {
+  injectTestNote(sequencerEngine.channelForTrack(track), note, static_cast<float>(velocity) / 127.0f, on);
 }
 
 void VirtualJVProcessor::exportSequencerSongs(const juce::File &file) {
