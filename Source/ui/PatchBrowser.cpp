@@ -81,6 +81,8 @@ PatchBrowser::PatchBrowser(VirtualJVProcessor &p)
 
     patchesListBoxes[i]->setRowHeight(rowHeight);
     addChildComponent(*patchesListBoxes[i]); // visibility (in/active) decided by reflowPatchColumns()
+    // true = also hear the rows nested inside each ListBox - see mouseDown()'s own comment.
+    patchesListBoxes[i]->addMouseListener(this, true);
   }
 
   if (processor.loaded)
@@ -99,6 +101,133 @@ PatchBrowser::PatchBrowser(VirtualJVProcessor &p)
     patchesListBoxes[col]->selectRow(row);
     */
   }
+}
+
+void PatchBrowser::showSendMenuForPatch(int index)
+{
+  if (index < 0 || !processor.loaded || !processor.isEligibleForPerformancePart(index))
+    return;
+  const bool isDrums = processor.patchInfos[index].drums;
+
+  // Deferred to the next message-loop turn (confirmed necessary while testing this
+  // feature): selecting a row that also flips Patch/Rhythm mode makes
+  // PatchesListModel::selectedRowsChanged() - called synchronously, as part of the same
+  // mouse event that leads here - rebuild the whole TabbedComponent
+  // (tabs.clearTabs()/addTab() inside VirtualJVEditor::showToneOrRhythmEditTabs()).
+  // Showing the popup inline, mid-rebuild, made it silently fail to appear. Letting that
+  // settle first sidesteps relying on JUCE's reparenting-during-event-dispatch behaviour.
+  juce::Component::SafePointer<PatchBrowser> safeParent(this);
+  juce::MessageManager::callAsync([safeParent, index, isDrums] {
+    if (safeParent == nullptr) {
+      return;
+    }
+
+    constexpr int numParts = VirtualJVProcessor::kNumPerformanceParts;
+    auto menu = juce::PopupMenu();
+    for (int s = 0; s < numParts; s++) {
+      const bool partIsRhythm = (s == numParts - 1);
+      if (partIsRhythm != isDrums)
+        continue; // rhythm sets only go to the fixed Rhythm Part, tones only to the other 7
+      auto &part = safeParent->processor.performanceParts[s];
+      juce::String label = "Send to Performance Part " + juce::String(s + 1) +
+                           (partIsRhythm ? " (Rhythm)" : "") +
+                           (part.present ? " (" + juce::String(part.name) + ")" : " (Empty)");
+      menu.addItem(s + 1, label);
+    }
+
+    // "Send to Sequencer" submenu (Alan's request, 2026-09-09) - only offered once the
+    // sequencer is turned on in Settings. Deliberately calls setSequencerTrackPatch(), NOT
+    // sendPatchToPerformancePart() - a sequencer track's own patch is decoupled from
+    // PerformancePart's live state (see PluginProcessor.h's own comment on sequencerEngine),
+    // only pushed into the live Part at the PLAY/REC edge, so choosing a patch here never
+    // changes what's currently sounding in Performance mode nor what's stored under "Send
+    // to Performance Part N" above. Item ids offset by numParts so a single popup result
+    // can tell the two submenus apart.
+    if (safeParent->processor.getSequencerEnabled()) {
+      juce::PopupMenu seqMenu;
+      for (int s = 0; s < numParts; s++) {
+        const bool partIsRhythm = (s == numParts - 1);
+        if (partIsRhythm != isDrums)
+          continue;
+        const auto trackPatch = safeParent->processor.getSequencer().getTrackPatch(s);
+        juce::String label = "Part " + juce::String(s + 1) +
+                             (partIsRhythm ? " (Rhythm)" : "") +
+                             (trackPatch.index >= 0 ? " (" + trackPatch.name + ")" : " (Empty)");
+        seqMenu.addItem(numParts + s + 1, label);
+      }
+      menu.addSubMenu("Send to Sequencer", seqMenu);
+    }
+
+    menu.showMenuAsync(juce::PopupMenu::Options().withMousePosition(),
+                       [safeParent, index](int result) {
+      if (safeParent == nullptr) {
+        return;
+      }
+      if (result >= 1 && result <= VirtualJVProcessor::kNumPerformanceParts)
+        safeParent->processor.sendPatchToPerformancePart(index, result - 1);
+      else if (result > VirtualJVProcessor::kNumPerformanceParts
+               && result <= 2 * VirtualJVProcessor::kNumPerformanceParts)
+        // setSequencerTrackPatch() takes (track, patchInfoIndex) - the OPPOSITE order from
+        // sendPatchToPerformancePart() just above (patchInfoIndex, partIndex). Mixing the two
+        // up here (index, track) is exactly why every "Send to Sequencer" click used to fail
+        // silently: the clicked patch's own index (often >7) landed in the `track` parameter
+        // and got rejected by its range guard - see setSequencerTrackPatch()'s own comment.
+        safeParent->processor.setSequencerTrackPatch(
+            result - 1 - VirtualJVProcessor::kNumPerformanceParts, index);
+    });
+  });
+}
+
+// Long-press on a patch row -> the right-click "Send to..." menu (see the header's own comment).
+// The ordinary tap (select the row, i.e. audition it) still happens exactly as before; only a
+// genuine hold additionally opens the menu. The row is selected explicitly when the hold fires
+// (a no-op if the tap already selected it) so the finger-lift that follows doesn't then change
+// the selection - and possibly rebuild the Patch/Rhythm tab set - while the menu is up.
+void PatchBrowser::mouseDown(const juce::MouseEvent &e)
+{
+  if (!e.source.isTouch() || !processor.loaded)
+    return;
+
+  for (int i = 0; i < activeColumns; i++)
+  {
+    auto *lb = patchesListBoxes[i];
+    if (!lb->isVisible() || !(lb == e.originalComponent || lb->isParentOf(e.originalComponent)))
+      continue;
+
+    const auto pos = e.getEventRelativeTo(lb).getPosition();
+    const int row = lb->getRowContainingPosition(pos.x, pos.y);
+    if (patchesListModels[i]->patchIndexForRow(row) < 0)
+      return;
+
+    longPressStartPos = e.position;
+    const int token = ++longPressToken;
+    juce::Component::SafePointer<PatchBrowser> safeThis(this);
+    juce::Timer::callAfterDelay(500, [safeThis, token, i, row]
+    {
+      auto *self = safeThis.getComponent();
+      if (self == nullptr || token != self->longPressToken)
+        return;
+      // Bump so the finger-lift's mouseUp() has nothing left to cancel and a second timer
+      // (none today) could not re-fire.
+      ++self->longPressToken;
+      const int index = self->patchesListModels[i]->patchIndexForRow(row);
+      self->patchesListBoxes[i]->selectRow(row);
+      self->showSendMenuForPatch(index);
+    });
+    return;
+  }
+}
+
+void PatchBrowser::mouseDrag(const juce::MouseEvent &e)
+{
+  // Touch always wobbles a little; past ~10px it's a scroll, not a hold.
+  if (e.position.getDistanceFrom(longPressStartPos) > 10.0f)
+    ++longPressToken;
+}
+
+void PatchBrowser::mouseUp(const juce::MouseEvent &)
+{
+  ++longPressToken;
 }
 
 PatchBrowser::~PatchBrowser()
