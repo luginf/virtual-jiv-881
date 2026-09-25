@@ -52,7 +52,11 @@ android {
                 // not on a phone CPU (same real-time-deadline risk the D110 Android port hit and
                 // documented in its own build.gradle).
                 arguments "-DANDROID_STL=c++_static", "-DANDROID_CPP_FEATURES=exceptions rtti",
-                          "-DANDROID_PLATFORM=android-29", "-DCMAKE_BUILD_TYPE=RelWithDebInfo"
+                          "-DANDROID_PLATFORM=android-29", "-DCMAKE_BUILD_TYPE=RelWithDebInfo",
+                          // Ninja would otherwise start cores+2 clang++ at once and swamp the dev
+                          // machine: cap concurrent compiles (override with JIV_MAX_JOBS).
+                          "-DCMAKE_JOB_POOLS=compile=${System.getenv('JIV_MAX_JOBS') ?: '3'}",
+                          "-DCMAKE_JOB_POOL_COMPILE=compile"
             }
         }
         ndk {

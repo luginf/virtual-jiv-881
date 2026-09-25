@@ -139,6 +139,20 @@ void LCDisplay::mouseDown(const juce::MouseEvent& e)
 
 void LCDisplay::showColorMenu()
 {
+    if (onContextMenu)
+    {
+        onContextMenu();
+        return;
+    }
+
+    auto menu = juce::PopupMenu();
+    addColorSubmenu(menu);
+    menu.showMenuAsync(juce::PopupMenu::Options().withMousePosition().withPreferredPopupDirection(
+        juce::PopupMenu::Options::PopupDirection::downwards));
+}
+
+void LCDisplay::addColorSubmenu(juce::PopupMenu &parent)
+{
     auto addItem = [this](juce::PopupMenu &menu, const std::string text, Color color)
         {
             menu.addItem(text, true, (lcdColor == color), [this, color]() { setLCDColor(color); });
@@ -159,10 +173,5 @@ void LCDisplay::showColorMenu()
     addItem(menu, "Black-Blue", Color::BlackBlue);
     addItem(menu, "VFD", Color::BlackVFD);
 
-    auto o = juce::PopupMenu::Options();
-
-    o = o.withMousePosition().withPreferredPopupDirection(
-        juce::PopupMenu::Options::PopupDirection::downwards);
-
-    menu.showMenuAsync(o);
+    parent.addSubMenu("LCD", menu);
 }

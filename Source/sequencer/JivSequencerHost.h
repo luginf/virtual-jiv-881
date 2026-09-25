@@ -149,4 +149,20 @@ public:
 	// Android app sets a larger one for fingers the first time it runs).
 	virtual int getGridRowHeight() const { return 0; }
 	virtual void setGridRowHeight(int /*pixels*/) {}
+
+	// Persisted custom key bindings for the retro sequencer's D-pad (see JivSequencerRetroPanel's
+	// KEY BINDINGS menu). Encoded as a semicolon-joined list of
+	// juce::KeyPress::getTextDescription() strings, one per JivSequencerRetroPanel::BindingIndex
+	// slot; the panel owns the encode/decode, the host just stores the string. Empty = "no
+	// override, use the built-in numpad defaults".
+	virtual juce::String getRetroKeyBindings() const { return {}; }
+	virtual void setRetroKeyBindings(const juce::String & /*encoded*/) {}
+
+	// Label of the retro HOME screen's PLAY/STOP/REC quick-bar row.
+	virtual juce::String transportRowLabel() const { return "JV880-SEQ"; }
+
+	// Persisted retro OPTIONS > LCD LINES toggle: false = 4-line display, true = 2 lines with
+	// roughly double the character size.
+	virtual bool getRetroLcdCompactMode() const { return false; }
+	virtual void setRetroLcdCompactMode(bool /*compact*/) {}
 };

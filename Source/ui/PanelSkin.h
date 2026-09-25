@@ -56,6 +56,12 @@ public:
     // right-click in the first place (kCommands, the Interface/"Panel" tab's own crop).
     PanelSkin(VirtualJVProcessor &, Variant initialVariant, LCDisplay *lcdColorMenuOwner = nullptr);
 
+    // Right-click anywhere on the panel that isn't one of the controls with a right-click
+    // function of their own (DATA, VOLUME, TONE SELECT) asks the owner for its app-wide context
+    // menu - LCD colours, sequencer view (Alan's request, 2026-09-21: the whole panel area, not
+    // just the LCD). Unset (the Interface tab's skin): right-click keeps acting as a plain click.
+    std::function<void()> onContextMenu;
+
     // Switches to a different crop of the same underlying artwork (e.g. Settings toggling
     // between Panel Full and Panel Compact) - reloads the image and re-triggers resized()/repaint,
     // no need to reconstruct the component.

@@ -128,25 +128,83 @@ void savePersistedSequencerEnabled(bool enabled) {
   file.replaceWithText(enabled ? "1" : "0");
 }
 
-// Piano-roll view choice + its row height (see VirtualJVProcessor::sequencerGridMode) - one
-// small "<gridMode> <rowHeight>" file at the same fixed location as the settings above.
-juce::File sequencerGridSettingsFile() {
-  return appDataBaseDir().getChildFile("sequencer_grid.txt");
+// Sequencer view choice + the grid view's row height - one small "<view> <rowHeight>" file at
+// the same fixed location as the settings above, <view> = seqview::View (0 classic, 1 retro,
+// 2 grid). An earlier build wrote "sequencer_grid.txt" with "<0|1> <rowHeight>" (1 = grid only);
+// it is read as a fallback so that choice survives.
+juce::File sequencerViewSettingsFile() {
+  return appDataBaseDir().getChildFile("sequencer_view.txt");
 }
 
-void loadPersistedSequencerGrid(bool &gridMode, int &rowHeight) {
-  auto file = sequencerGridSettingsFile();
-  if (!file.existsAsFile())
-    return;
+void loadPersistedSequencerView(bool &gridMode, bool &retroMode, int &rowHeight) {
+  auto file = sequencerViewSettingsFile();
+  bool legacy = false;
+  if (!file.existsAsFile()) {
+    file = appDataBaseDir().getChildFile("sequencer_grid.txt");
+    legacy = true;
+    if (!file.existsAsFile())
+      return;
+  }
   auto tokens = juce::StringArray::fromTokens(file.loadFileAsString().trim(), " ", "");
-  gridMode = tokens[0].getIntValue() != 0;
+  const int view = tokens[0].getIntValue();
+  if (legacy) {
+    gridMode = view != 0;
+    retroMode = false;
+  } else {
+    retroMode = view == (int)seqview::View::retro;
+    gridMode = view == (int)seqview::View::grid;
+  }
   rowHeight = juce::jlimit(0, 200, tokens[1].getIntValue());
 }
 
-void savePersistedSequencerGrid(bool gridMode, int rowHeight) {
-  auto file = sequencerGridSettingsFile();
+void savePersistedSequencerView(bool gridMode, bool retroMode, int rowHeight) {
+  auto file = sequencerViewSettingsFile();
   file.getParentDirectory().createDirectory();
-  file.replaceWithText(juce::String(gridMode ? 1 : 0) + " " + juce::String(rowHeight));
+  const auto view = retroMode ? seqview::View::retro : gridMode ? seqview::View::grid : seqview::View::classic;
+  file.replaceWithText(juce::String((int)view) + " " + juce::String(rowHeight));
+}
+
+// Keyboard and sequencer pane heights: "<keyboard> <sequencer>", clamped by the editor's own limits.
+juce::File paneHeightsSettingsFile() {
+  return appDataBaseDir().getChildFile("layout_heights.txt");
+}
+
+void loadPersistedPaneHeights(int &keyboard, int &sequencer) {
+  auto file = paneHeightsSettingsFile();
+  if (!file.existsAsFile())
+    return;
+  auto tokens = juce::StringArray::fromTokens(file.loadFileAsString().trim(), " ", "");
+  if (tokens.size() < 2)
+    return;
+  keyboard = juce::jlimit(40, 400, tokens[0].getIntValue());
+  sequencer = juce::jlimit(120, 900, tokens[1].getIntValue());
+}
+
+void savePersistedPaneHeights(int keyboard, int sequencer) {
+  auto file = paneHeightsSettingsFile();
+  file.getParentDirectory().createDirectory();
+  file.replaceWithText(juce::String(keyboard) + " " + juce::String(sequencer));
+}
+
+// Retro view's own settings: line 1 = LCD compact flag (0/1), line 2 = encoded key bindings.
+juce::File sequencerRetroSettingsFile() {
+  return appDataBaseDir().getChildFile("sequencer_retro.txt");
+}
+
+void loadPersistedSequencerRetro(bool &compact, juce::String &bindings) {
+  auto file = sequencerRetroSettingsFile();
+  if (!file.existsAsFile())
+    return;
+  juce::StringArray lines;
+  lines.addLines(file.loadFileAsString());
+  compact = lines[0].trim().getIntValue() != 0;
+  bindings = lines[1].trim();
+}
+
+void savePersistedSequencerRetro(bool compact, const juce::String &bindings) {
+  auto file = sequencerRetroSettingsFile();
+  file.getParentDirectory().createDirectory();
+  file.replaceWithText(juce::String(compact ? 1 : 0) + "\n" + bindings);
 }
 
 void savePersistedDisplayMode(VirtualJVProcessor::DisplayMode mode) {
@@ -195,7 +253,9 @@ VirtualJVProcessor::VirtualJVProcessor()
 
   if (wrapperType == juce::AudioProcessor::wrapperType_Standalone) {
     sequencerEnabled = loadPersistedSequencerEnabled();
-    loadPersistedSequencerGrid(sequencerGridMode, gridRowHeight);
+    loadPersistedSequencerView(sequencerGridMode, sequencerRetroMode, gridRowHeight);
+    loadPersistedPaneHeights(keyboardPaneH, sequencerPaneH);
+    loadPersistedSequencerRetro(retroLcdCompactMode, retroKeyBindings);
   }
 
   attemptLoadRoms();
@@ -1238,15 +1298,38 @@ void VirtualJVProcessor::setSequencerEnabled(bool enabled) {
       e->refreshSequencerVisibility();
 }
 
-void VirtualJVProcessor::setSequencerGridMode(bool grid) {
-  if (grid == sequencerGridMode)
+void VirtualJVProcessor::setSequencerView(seqview::View view) {
+  const bool retro = view == seqview::View::retro;
+  const bool grid = view == seqview::View::grid;
+  if (retro == sequencerRetroMode && grid == sequencerGridMode)
     return;
+  sequencerRetroMode = retro;
   sequencerGridMode = grid;
-  savePersistedSequencerGrid(sequencerGridMode, gridRowHeight);
+  savePersistedSequencerView(sequencerGridMode, sequencerRetroMode, gridRowHeight);
 
   if (auto editor = getActiveEditor())
     if (auto e = dynamic_cast<VirtualJVEditor *>(editor))
       e->refreshSequencerVisibility();
+}
+
+void VirtualJVProcessor::setPaneHeights(int keyboard, int sequencer) {
+  keyboardPaneH = keyboard;
+  sequencerPaneH = sequencer;
+  savePersistedPaneHeights(keyboard, sequencer);
+}
+
+void VirtualJVProcessor::setRetroKeyBindings(const juce::String &encoded) {
+  if (encoded == retroKeyBindings)
+    return;
+  retroKeyBindings = encoded;
+  savePersistedSequencerRetro(retroLcdCompactMode, retroKeyBindings);
+}
+
+void VirtualJVProcessor::setRetroLcdCompactMode(bool compact) {
+  if (compact == retroLcdCompactMode)
+    return;
+  retroLcdCompactMode = compact;
+  savePersistedSequencerRetro(retroLcdCompactMode, retroKeyBindings);
 }
 
 void VirtualJVProcessor::setGridRowHeight(int pixels) {
@@ -1254,7 +1337,7 @@ void VirtualJVProcessor::setGridRowHeight(int pixels) {
   if (pixels == gridRowHeight)
     return;
   gridRowHeight = pixels;
-  savePersistedSequencerGrid(sequencerGridMode, gridRowHeight);
+  savePersistedSequencerView(sequencerGridMode, sequencerRetroMode, gridRowHeight);
 }
 
 void VirtualJVProcessor::auditionTrackNote(int track, int note, int velocity, bool on) {

@@ -27,6 +27,8 @@
 #include "ui/widgets/VirtualKeyboard.h"
 #include "sequencer/JivSequencerPanel.h"
 #include "sequencer/JivSequencerGridPanel.h"
+#include "sequencer/JivSequencerRetroPanel.h"
+#include "sequencer/SequencerViewMenu.h"
 
 // Browse view's own test-note button (Alan's request, 2026-09-21, same as the D-110 Android port's
 // Soundbanks view: no on-screen keyboard is visible in Browse, so there was no way to hear a
@@ -160,8 +162,10 @@ public:
 		// The sequencer has its own transport row with a bar-menu button that already carries
 		// the app's own hamburger (see onBarMenuButtonExtra below), so hide this row while it's
 		// showing and give it the full height instead - same reasoning as the D110 port's own
-		// grid-sequencer treatment.
-		const bool inSequencer = currentView == View::Sequencer;
+		// grid-sequencer treatment. The retro view has no bar-menu button of its own, so there
+		// the row stays (its hamburger is then the way back to this app's menu).
+		const bool retroView = processor.getSequencerRetroMode();
+		const bool inSequencer = currentView == View::Sequencer && !retroView;
 		menuButton.setVisible(!inSequencer);
 		statusLabel.setVisible(!inSequencer);
 		if (!inSequencer) {
@@ -189,17 +193,20 @@ public:
 		panelDisplay.setVisible(currentView == View::Keyboard);
 		keyboard.setVisible(currentView == View::Keyboard);
 		patchBrowser->setVisible(currentView == View::Browse);
-		// Strip or piano roll, per processor.getSequencerGridMode() (both views exist; only the
-		// chosen one is ever shown).
-		const bool pianoRoll = processor.getSequencerGridMode();
-		sequencerPanel->setVisible(currentView == View::Sequencer && !pianoRoll);
-		sequencerGridPanel->setVisible(currentView == View::Sequencer && pianoRoll);
+		// Classic strip, retro LCD or piano roll, per processor.getSequencerRetroMode()/
+		// getSequencerGridMode() (all three exist; only the chosen one is ever shown).
+		const bool pianoRoll = !retroView && processor.getSequencerGridMode();
+		const bool inSeq = currentView == View::Sequencer;
+		sequencerPanel->setVisible(inSeq && !retroView && !pianoRoll);
+		sequencerGridPanel->setVisible(inSeq && pianoRoll);
+		sequencerRetroPanel->setVisible(inSeq && retroView);
 
 		if (currentView == View::Browse) {
 			patchBrowser->setBounds(area);
 		} else if (currentView == View::Sequencer) {
 			sequencerPanel->setBounds(area);
 			sequencerGridPanel->setBounds(area);
+			sequencerRetroPanel->setBounds(area);
 		} else {
 			const int panelH = juce::roundToInt(panelDisplay.heightForWidth((float)area.getWidth()));
 			panelDisplay.setBounds(area.removeFromTop(panelH));
@@ -241,6 +248,10 @@ private:
 		sequencerGridPanel = std::make_unique<JivSequencerGridPanel>(processor);
 		addChildComponent(*sequencerGridPanel);
 		sequencerGridPanel->onBarMenuButtonExtra = [this](juce::PopupMenu &m) { buildAppMenu(m); };
+
+		if (sequencerRetroPanel) removeChildComponent(sequencerRetroPanel.get());
+		sequencerRetroPanel = std::make_unique<JivSequencerRetroPanel>(processor);
+		addChildComponent(*sequencerRetroPanel);
 	}
 
 	// Browse view's NOTE (left: plays testNotePitch while pressed), HOLD (sustains it, and
@@ -488,8 +499,10 @@ private:
 		          [this] { setView(currentView == View::Browse ? View::Keyboard : View::Browse); });
 		m.addItem(currentView == View::Sequencer ? "Front Panel" : "Sequencer",
 		          [this] { setView(currentView == View::Sequencer ? View::Keyboard : View::Sequencer); });
-		m.addItem("Piano Roll Sequencer", true, processor.getSequencerGridMode(), [this] {
-			processor.setSequencerGridMode(!processor.getSequencerGridMode());
+		// "Sequencer > Classic / Retro / Grid" - the same submenu every front end of the family
+		// offers on right-click (SequencerViewMenu.h).
+		seqview::addSubmenu(m, seqview::current(processor), [this](seqview::View v) {
+			processor.setSequencerView(v);
 			resized();
 		});
 		// VirtualKeyboard::showContextMenu() is the exact same channel/remap/PC-keyboard menu
@@ -560,6 +573,7 @@ private:
 	std::unique_ptr<PatchBrowser> patchBrowser;
 	std::unique_ptr<JivSequencerPanel> sequencerPanel;
 	std::unique_ptr<JivSequencerGridPanel> sequencerGridPanel;
+	std::unique_ptr<JivSequencerRetroPanel> sequencerRetroPanel;
 
 	juce::TextButton menuButton;
 	juce::Label statusLabel;

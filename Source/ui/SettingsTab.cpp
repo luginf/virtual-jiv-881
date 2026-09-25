@@ -170,9 +170,15 @@ SettingsTab::SettingsTab(VirtualJVProcessor &p) : processor(p)
     sequencerToggle.setToggleState(processor.getSequencerEnabled(), juce::dontSendNotification);
     sequencerToggle.addListener(this);
 
-    addAndMakeVisible(sequencerGridToggle);
-    sequencerGridToggle.setToggleState(processor.getSequencerGridMode(), juce::dontSendNotification);
-    sequencerGridToggle.addListener(this);
+    addAndMakeVisible(sequencerViewCombo);
+    sequencerViewCombo.addItem("Classic", 1);
+    sequencerViewCombo.addItem("Retro", 2);
+    sequencerViewCombo.addItem("Grid", 3);
+    sequencerViewCombo.setSelectedId((int)seqview::current(processor) + 1, juce::dontSendNotification);
+    sequencerViewCombo.onChange = [this]
+    {
+      processor.setSequencerView((seqview::View)(sequencerViewCombo.getSelectedId() - 1));
+    };
   }
 
   startTimerHz(4);
@@ -187,6 +193,11 @@ void SettingsTab::timerCallback()
   const double loadPercent = processor.dspLoadMeasurer.getLoadAsPercentage();
   dspLoadLabel.setText("DSP Load: " + juce::String(loadPercent, 1) + " %",
                        juce::dontSendNotification);
+
+  // The view can also change from the right-click menu.
+  const int viewId = (int)seqview::current(processor) + 1;
+  if (sequencerViewCombo.getSelectedId() != viewId)
+    sequencerViewCombo.setSelectedId(viewId, juce::dontSendNotification);
 }
 
 void SettingsTab::updateValues()
@@ -246,7 +257,7 @@ void SettingsTab::resized()
   // present at all (see the constructor) in a Standalone build.
   sequencerSectionHeaderLabel.setBounds(460, displaySectionTop, 90, 22);
   sequencerToggle.setBounds(550, displaySectionTop, 140, 24);
-  sequencerGridToggle.setBounds(690, displaySectionTop, 120, 24);
+  sequencerViewCombo.setBounds(694, displaySectionTop, 110, 24);
 
   // ROM Folder section (Alan's request, 2026-09-08), between Display and Audio/MIDI Settings -
   // see refreshRomSection().
@@ -312,9 +323,6 @@ void SettingsTab::buttonClicked(juce::Button *button)
     break;
   case SequencerEnabled:
     processor.setSequencerEnabled(sequencerToggle.getToggleState());
-    break;
-  case SequencerGrid:
-    processor.setSequencerGridMode(sequencerGridToggle.getToggleState());
     break;
   }
 }

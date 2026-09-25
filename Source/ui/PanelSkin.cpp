@@ -197,6 +197,18 @@ void PanelSkin::mouseDown(const juce::MouseEvent &e)
     int hit = hitTest(e.position);
     pressedButtonIndex = hit;
 
+    // A real right button (not Mac Ctrl-click, which latches - see below) anywhere except the
+    // three controls that use it themselves opens the owner's context menu. pressedButtonIndex
+    // is cleared so mouseUp() doesn't release a button that was never pressed.
+    const bool ownsRightClick = hit == kHitDataDial || hit == kHitVolumeKnob ||
+        (hit >= 0 && hit < kNumButtons && kButtons[hit].buttonId == MCU_BUTTON_TONE_SELECT);
+    if (onContextMenu && e.mods.isRightButtonDown() && !e.mods.isCtrlDown() && !ownsRightClick)
+    {
+        pressedButtonIndex = kHitNone;
+        onContextMenu();
+        return;
+    }
+
     if (hit == kHitDataDial)
     {
         dialDragStartY = e.position.y;

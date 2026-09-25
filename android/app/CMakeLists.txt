@@ -72,6 +72,8 @@ target_sources(jiv881Android PRIVATE
     ${JIV_SOURCE_DIR}/sequencer/JivSequencerSongsFile.cpp
     ${JIV_SOURCE_DIR}/sequencer/JivSequencerPanel.cpp
     ${JIV_SOURCE_DIR}/sequencer/JivSequencerGridPanel.cpp
+    ${JIV_SOURCE_DIR}/sequencer/JivSequencerRetroPanel.cpp
+    ${JIV_SOURCE_DIR}/DotMatrixFont.cpp
     ${JIV_SOURCE_DIR}/ui/PanelSkin.cpp
     ${JIV_SOURCE_DIR}/ui/PatchBrowser.cpp
     ${JIV_SOURCE_DIR}/ui/PerformanceTab.cpp

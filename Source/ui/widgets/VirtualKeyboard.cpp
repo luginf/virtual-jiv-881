@@ -109,12 +109,27 @@ void VirtualKeyboard::showContextMenu(int noteForHold) {
 		          true, heldNotes.count(noteForHold) > 0);
 		m.addSeparator();
 	}
+#if JUCE_ANDROID
+	// Picking an item inside a submenu deletes the submenu window synchronously (PopupMenu's
+	// hide() resets activeSubMenu) while Android's handleMouseUpCallback still has a second
+	// event to dispatch to its peer: use-after-free, "Pure virtual function called". Flat menu.
+	m.addItem(3000, "MIDI Remap (send on one channel instead of all 16)", true, midiRemap);
+	m.addSectionHeader("MIDI Channel");
+	for (int ch = 1; ch <= 16; ++ch)
+		m.addItem(1000 + ch, "Channel " + juce::String(ch), midiRemap, midiRemap && midiChannel == ch);
+	m.addSeparator();
+	m.addItem(4000, "PC keyboard input (tracker-style)", true, pcKeyboardEnabled);
+	m.addItem(2001, "PC layout: QWERTY", pcKeyboardEnabled, pcLayout == PcLayout::qwerty);
+	m.addItem(2002, "PC layout: AZERTY", pcKeyboardEnabled, pcLayout == PcLayout::azerty);
+	m.addSeparator();
+#else
 	m.addSubMenu("MIDI Channel", channelMenu, midiRemap);
 	m.addItem(3000, "MIDI Remap (send on one channel instead of all 16)", true, midiRemap);
 	m.addSeparator();
 	m.addItem(4000, "PC keyboard input (tracker-style)", true, pcKeyboardEnabled);
 	m.addSubMenu("PC keyboard layout", layoutMenu, pcKeyboardEnabled);
 	m.addSeparator();
+#endif
 	m.addItem(6000, "4-octave keyboard (wide)", true, numOctaves == 4);
 
 	m.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(this).withMousePosition(),

@@ -102,9 +102,11 @@ the in-app picker is the recommended route.
 Browse: a long-press (~0.5 s, without moving) on a patch opens the same "Send to Performance Part
 N" / "Send to Sequencer" menu a desktop right-click does. Browse also has NOTE / HOLD / PITCH buttons on its top row (no keyboard is visible there): NOTE
 plays the chosen pitch while pressed, HOLD sustains it and re-strikes it on every newly picked
-patch, PITCH opens a slider to choose the note. Sequencer: hamburger menu (or the ☰
-button in the sequencer's own transport row) -> **Piano Roll Sequencer** switches the drawer to the
-piano-roll editor (see below); the pitch rows start at a finger-sized height (ROW button to change).
+patch, PITCH opens a slider to choose the note. Sequencer views: hamburger menu (or the
+☰ button in the sequencer's own transport row) -> **Sequencer** -> Classic / Retro (D-20 style LCD)
+/ Grid (piano roll); the grid's pitch rows start at a finger-sized height (ROW button to change).
+On desktop (Standalone, sequencer enabled) the same submenu is on right-click on the LCD or on the
+drawer handles, and in Settings.
 
 Not yet done: no app store distribution, debug build only, verified so far only by compiling -
 real-device testing still needed (see `.claude/dev-notes/android.md` for the D-110 sibling

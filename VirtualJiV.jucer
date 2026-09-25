@@ -94,6 +94,8 @@
       <FILE id="PSvqSL" name="PluginEditor.cpp" compile="1" resource="0"
             file="Source/PluginEditor.cpp"/>
       <FILE id="yg8Z9N" name="PluginEditor.h" compile="0" resource="0" file="Source/PluginEditor.h"/>
+      <FILE id="DotMx1" name="DotMatrixFont.cpp" compile="1" resource="0" file="Source/DotMatrixFont.cpp"/>
+      <FILE id="DotMx2" name="DotMatrixFont.h" compile="0" resource="0" file="Source/DotMatrixFont.h"/>
       <GROUP id="{9C2A9B1E-3A1F-4E2B-8F1D-6C7E5A9D2B4F}" name="sequencer">
         <FILE id="JsEng1" name="JivSequencerEngine.cpp" compile="1" resource="0" file="Source/sequencer/JivSequencerEngine.cpp"/>
         <FILE id="JsEng2" name="JivSequencerEngine.h" compile="0" resource="0" file="Source/sequencer/JivSequencerEngine.h"/>
@@ -102,6 +104,9 @@
         <FILE id="JsPan2" name="JivSequencerPanel.h" compile="0" resource="0" file="Source/sequencer/JivSequencerPanel.h"/>
         <FILE id="JsGrd1" name="JivSequencerGridPanel.cpp" compile="1" resource="0" file="Source/sequencer/JivSequencerGridPanel.cpp"/>
         <FILE id="JsGrd2" name="JivSequencerGridPanel.h" compile="0" resource="0" file="Source/sequencer/JivSequencerGridPanel.h"/>
+        <FILE id="JsRet1" name="JivSequencerRetroPanel.cpp" compile="1" resource="0" file="Source/sequencer/JivSequencerRetroPanel.cpp"/>
+        <FILE id="JsRet2" name="JivSequencerRetroPanel.h" compile="0" resource="0" file="Source/sequencer/JivSequencerRetroPanel.h"/>
+        <FILE id="JsView" name="SequencerViewMenu.h" compile="0" resource="0" file="Source/sequencer/SequencerViewMenu.h"/>
         <FILE id="JsSf1" name="JivSequencerSongsFile.cpp" compile="1" resource="0" file="Source/sequencer/JivSequencerSongsFile.cpp"/>
         <FILE id="JsSf2" name="JivSequencerSongsFile.h" compile="0" resource="0" file="Source/sequencer/JivSequencerSongsFile.h"/>
       </GROUP>
@@ -114,6 +119,7 @@
     <MODULE id="juce_audio_plugin_client" showAllCode="1" useLocalCopy="0"
             useGlobalPath="0"/>
     <MODULE id="juce_audio_processors" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
+    <MODULE id="juce_audio_processors_headless" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
     <MODULE id="juce_audio_utils" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
     <MODULE id="juce_core" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
     <MODULE id="juce_data_structures" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
@@ -134,6 +140,7 @@
         <MODULEPATH id="juce_audio_basics" path="./JUCE/modules"/>
         <MODULEPATH id="juce_audio_plugin_client" path="./JUCE/modules"/>
         <MODULEPATH id="juce_audio_processors" path="./JUCE/modules"/>
+        <MODULEPATH id="juce_audio_processors_headless" path="./JUCE/modules"/>
         <MODULEPATH id="juce_gui_extra" path="./JUCE/modules"/>
         <MODULEPATH id="juce_gui_basics" path="./JUCE/modules"/>
         <MODULEPATH id="juce_graphics" path="./JUCE/modules"/>
@@ -157,6 +164,7 @@
         <MODULEPATH id="juce_audio_formats" path="./JUCE/modules"/>
         <MODULEPATH id="juce_audio_plugin_client" path="./JUCE/modules"/>
         <MODULEPATH id="juce_audio_processors" path="./JUCE/modules"/>
+        <MODULEPATH id="juce_audio_processors_headless" path="./JUCE/modules"/>
         <MODULEPATH id="juce_audio_utils" path="./JUCE/modules"/>
         <MODULEPATH id="juce_core" path="./JUCE/modules"/>
         <MODULEPATH id="juce_data_structures" path="./JUCE/modules"/>
@@ -178,6 +186,7 @@
         <MODULEPATH id="juce_audio_formats" path="./JUCE/modules"/>
         <MODULEPATH id="juce_audio_plugin_client" path="./JUCE/modules"/>
         <MODULEPATH id="juce_audio_processors" path="./JUCE/modules"/>
+        <MODULEPATH id="juce_audio_processors_headless" path="./JUCE/modules"/>
         <MODULEPATH id="juce_audio_utils" path="./JUCE/modules"/>
         <MODULEPATH id="juce_core" path="./JUCE/modules"/>
         <MODULEPATH id="juce_data_structures" path="./JUCE/modules"/>
@@ -197,6 +206,7 @@
       <MODULEPATHS>
         <MODULEPATH id="juce_audio_plugin_client" path="./JUCE/modules"/>
         <MODULEPATH id="juce_audio_processors" path="./JUCE/modules"/>
+        <MODULEPATH id="juce_audio_processors_headless" path="./JUCE/modules"/>
         <MODULEPATH id="juce_gui_extra" path="./JUCE/modules"/>
         <MODULEPATH id="juce_gui_basics" path="./JUCE/modules"/>
         <MODULEPATH id="juce_graphics" path="./JUCE/modules"/>

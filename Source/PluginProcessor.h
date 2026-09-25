@@ -18,6 +18,7 @@
 #include "rom.h"
 #include "sequencer/JivSequencerEngine.h"
 #include "sequencer/JivSequencerHost.h"
+#include "sequencer/SequencerViewMenu.h"
 #include "ui/widgets/VirtualKeyboardHost.h"
 
 constexpr int NUM_EXPS = romCount - 6;
@@ -290,7 +291,12 @@ public:
     std::vector<std::string> ownedNames;
     bool loaded = false;
 
-    juce::SpinLock mcuLock;
+    // CriticalSection, not SpinLock: this is held across most of processBlock() (see its own
+    // comment there), so a UI-thread caller can be waiting a while whenever DSP load is high -
+    // a SpinLock would busy-wait that whole time, pegging a core and starving the audio thread
+    // it's waiting on (Alan's report, 2026-09-22: freezes, unresponsive buttons, ~90% CPU).
+    // CriticalSection sleeps instead.
+    juce::CriticalSection mcuLock;
 
     // DSP load meter (Alan's request, 2026-09-07) - measures the proportion of each audio block's
     // real-time budget spent inside processBlock(), covering both Patch mode (1 engine) and
@@ -396,14 +402,37 @@ public:
     bool getSequencerEnabled() const { return sequencerEnabled; }
     void setSequencerEnabled(bool enabled);
 
-    // Piano-roll (grid) view of the sequencer drawer instead of the default strip - see
-    // JivSequencerGridPanel.h. Persisted with the grid row height in one small file
-    // (sequencerGridSettingsFile() in the .cpp, same convention as sequencer_enabled.txt).
-    // Only ever a UI choice: both views drive the very same engine. setSequencerGridMode()
-    // tells the active desktop editor to swap its panel; the Android app polls it itself.
+    // Which of the three views the sequencer drawer shows - classic strip (JivSequencerPanel),
+    // retro D-20-style LCD (JivSequencerRetroPanel) or piano roll (JivSequencerGridPanel). Stored
+    // as the two mutually exclusive bools every host of the shared "Sequencer > Classic / Retro /
+    // Grid" menu (SequencerViewMenu.h) exposes; setSequencerView() sets both at once, persists
+    // them (with the grid row height) in sequencer_view.txt - same convention as
+    // sequencer_enabled.txt - and tells the active desktop editor to swap its panel once. The
+    // Android app re-reads them itself. Only ever a UI choice: all views drive the same engine.
     bool sequencerGridMode = false;
+    bool sequencerRetroMode = false;
     bool getSequencerGridMode() const { return sequencerGridMode; }
-    void setSequencerGridMode(bool grid);
+    bool getSequencerRetroMode() const { return sequencerRetroMode; }
+    void setSequencerGridMode(bool grid) { setSequencerView(grid ? seqview::View::grid : seqview::View::classic); }
+    void setSequencerRetroMode(bool retro) { setSequencerView(retro ? seqview::View::retro : seqview::View::classic); }
+    void setSequencerView(seqview::View view);
+
+    // Retro view settings (JivSequencerHost), persisted in sequencer_retro.txt.
+    juce::String retroKeyBindings;
+    bool retroLcdCompactMode = false;
+    juce::String getRetroKeyBindings() const override { return retroKeyBindings; }
+    void setRetroKeyBindings(const juce::String &encoded) override;
+    bool getRetroLcdCompactMode() const override { return retroLcdCompactMode; }
+    void setRetroLcdCompactMode(bool compact) override;
+
+    // Heights of the keyboard and sequencer panes in the desktop editor (dragged with the bars
+    // between the panes, see VirtualJVEditor), persisted in layout_heights.txt.
+    static constexpr int kDefaultKeyboardPaneH = 120;
+    static constexpr int kDefaultSequencerPaneH = 347;
+    int keyboardPaneH = kDefaultKeyboardPaneH;
+    int sequencerPaneH = kDefaultSequencerPaneH;
+    void setPaneHeights(int keyboard, int sequencer);
+
     int gridRowHeight = 0;
     int getGridRowHeight() const override { return gridRowHeight; }
     void setGridRowHeight(int pixels) override;

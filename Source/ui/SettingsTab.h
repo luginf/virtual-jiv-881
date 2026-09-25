@@ -49,7 +49,6 @@ private:
         Chorus           = 12U,
         MasterVolume     = 13U,
         SequencerEnabled = 14U,
-        SequencerGrid    = 15U,
     };
 
     Slider masterTuneSlider{ MasterTune, 1, 127, 1, 64, true };
@@ -104,8 +103,9 @@ private:
     // it could never do anything there. See VirtualJVProcessor::setSequencerEnabled().
     juce::Label sequencerSectionHeaderLabel;
     Button sequencerToggle{ SequencerEnabled, "Enable Sequencer" };
-    // Piano-roll view of the drawer instead of the strip - see VirtualJVProcessor::setSequencerGridMode().
-    Button sequencerGridToggle{ SequencerGrid, "Piano Roll" };
+    // Which view the drawer shows (Classic / Retro / Grid) - see VirtualJVProcessor::
+    // setSequencerView(). Also reachable by right-click, so timerCallback() keeps it in sync.
+    juce::ComboBox sequencerViewCombo;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SettingsTab)
 };

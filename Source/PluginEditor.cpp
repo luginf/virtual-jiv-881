@@ -27,9 +27,63 @@ VirtualJVEditor::VirtualJVEditor(VirtualJVProcessor &p)
     addAndMakeVisible(panelDisplay);
     lcd.setVisible(processor.displayMode == VirtualJVProcessor::DisplayMode::LcdOnly);
     panelDisplay.setVisible(!lcd.isVisible());
+    addAndMakeVisible(tabsHandle);
     addAndMakeVisible(tabs);
     addAndMakeVisible(keyboardHandle);
     addAndMakeVisible(virtualKeyboard);
+
+    tabsHandle.setLabel("Patches");
+    tabsHandle.onRightClick = [this] { showAppContextMenu(); };
+    tabsHandle.onClick = [this]
+    {
+        if (!tabsCollapsed)
+        {
+            savedTabsH = tabs.getHeight();
+            tabsCollapsed = true;
+            tabsHandle.setExpanded(false);
+            tabs.setVisible(false);
+            setSize(getWidth(), juce::jmax(0, getHeight() - savedTabsH));
+        }
+        else
+        {
+            tabsCollapsed = false;
+            tabsHandle.setExpanded(true);
+            tabs.setVisible(true);
+            setSize(getWidth(), getHeight() + savedTabsH);
+        }
+        resized();
+    };
+    keyboardPaneH = processor.keyboardPaneH;
+    sequencerPaneH = processor.sequencerPaneH;
+    addAndMakeVisible(bottomGrip);
+
+    keyboardHandle.onDragStart = [this] { dragStartWindowH = getHeight(); };
+    keyboardHandle.onDrag = [this](int dy)
+    {
+        if (tabsCollapsed) return;
+        // Tabs pane: no stored height, the window itself carries it.
+        setSize(getWidth(), juce::jmax(dragStartWindowH + dy, getHeight() - (int)tabs.getHeight() + kMinTabsH));
+    };
+    sequencerHandle.onDragStart = [this] { dragStartValue = keyboardPaneH; dragStartWindowH = getHeight(); };
+    sequencerHandle.onDrag = [this](int dy)
+    {
+        if (!keyboardCollapsed)
+            resizePane(keyboardPaneH, dragStartValue + dy, kMinKeyboardPaneH, kMaxKeyboardPaneH);
+    };
+    sequencerHandle.onDragEnd = [this] { processor.setPaneHeights(keyboardPaneH, sequencerPaneH); };
+    bottomGrip.onDragStart = [this]
+    {
+        dragStartValue = gripTarget() == 2 ? sequencerPaneH : keyboardPaneH;
+        dragStartWindowH = getHeight();
+    };
+    bottomGrip.onDrag = [this](int dy)
+    {
+        if (gripTarget() == 2)
+            resizePane(sequencerPaneH, dragStartValue + dy, kMinSequencerPaneH, kMaxSequencerPaneH);
+        else if (gripTarget() == 1)
+            resizePane(keyboardPaneH, dragStartValue + dy, kMinKeyboardPaneH, kMaxKeyboardPaneH);
+    };
+    bottomGrip.onDragEnd = [this] { processor.setPaneHeights(keyboardPaneH, sequencerPaneH); };
 
     keyboardHandle.setExpanded(!keyboardCollapsed);
     keyboardHandle.onClick = [this]
@@ -45,6 +99,10 @@ VirtualJVEditor::VirtualJVEditor(VirtualJVProcessor &p)
     // refreshSequencerVisibility() (called at the very end of this constructor, once `tabs` is
     // actually populated - see that call site's own comment for why the ordering matters).
     sequencerHandle.setLabel("Sequencer");
+    sequencerHandle.onRightClick = [this] { showAppContextMenu(); };
+    keyboardHandle.onRightClick = [this] { showAppContextMenu(); };
+    lcd.onContextMenu = [this] { showAppContextMenu(); };
+    panelDisplay.onContextMenu = [this] { showAppContextMenu(); };
     sequencerHandle.setExpanded(!sequencerCollapsed);
     sequencerHandle.onClick = [this]
     {
@@ -69,6 +127,7 @@ VirtualJVEditor::VirtualJVEditor(VirtualJVProcessor &p)
         vp.setViewedComponent(&content, false);
         vp.setScrollBarsShown(true, false);
     };
+    pinInViewport(performanceViewport, performanceTab);
     pinInViewport(editCommonViewport, editCommonTab);
     pinInViewport(editTone1Viewport, editTone1Tab);
     pinInViewport(editTone2Viewport, editTone2Tab);
@@ -95,9 +154,9 @@ VirtualJVEditor::VirtualJVEditor(VirtualJVProcessor &p)
     // well past that instead of removed outright (setResizeLimits has no "no limit" - some finite
     // bound is required), leaving plenty of headroom beyond even a 1:1 full-panel display.
     setResizable(true, true);
-    setResizeLimits(820, 400, 6000, 900 + (int)VirtualKeyboard::kRefH);
+    setResizeLimits(820, 200, 6000, 4000);
 
-    setSize(820, 900 + (int)VirtualKeyboard::kRefH);
+    setSize(820, 900 + keyboardPaneH + kHandleH);
 
     // ROMs not found (Alan's report, 2026-09-08: this used to be a blocking OS alert dialog and
     // an otherwise-empty window - no visible path forward besides guessing the app-data folder
@@ -198,7 +257,7 @@ void VirtualJVEditor::showToneOrRhythmEditTabs(const bool isRhythm)
     if (isRhythm)
     {
         tabs.addTab("Browse", bgColor, &patchBrowser, false);
-        tabs.addTab("Performance", bgColor, &performanceTab, false);
+        tabs.addTab("Performance", bgColor, &performanceViewport, false);
         tabs.addTab("Common", bgColor, &editCommonViewport, false);
         tabs.addTab("Rhythm Set", bgColor, &editRhythmViewport, false);
         tabs.addTab("Settings", bgColor, &settingsViewport, false);
@@ -208,7 +267,7 @@ void VirtualJVEditor::showToneOrRhythmEditTabs(const bool isRhythm)
     else
     {
         tabs.addTab("Browse", bgColor, &patchBrowser, false);
-        tabs.addTab("Performance", bgColor, &performanceTab, false);
+        tabs.addTab("Performance", bgColor, &performanceViewport, false);
         tabs.addTab("Common", bgColor, &editCommonViewport, false);
         tabs.addTab("Tone 1", bgColor, &editTone1Viewport, false);
         tabs.addTab("Tone 2", bgColor, &editTone2Viewport, false);
@@ -248,44 +307,88 @@ uint8_t VirtualJVEditor::getSelectedRomIdx()
     }
 }
 
+int VirtualJVEditor::topAreaHeight() const
+{
+    // LcdOnly is the fixed 820x100 it's always been; the panel modes scale with the window's own
+    // current width instead, spanning it fully (unlike the tabs below, which stay pinned at 820
+    // - see the constructor's setResizeLimits() comment).
+    if (processor.displayMode == VirtualJVProcessor::DisplayMode::LcdOnly)
+        return 100;
+    return (int)panelDisplay.heightForWidth((float)getWidth());
+}
+
+int VirtualJVEditor::gripTarget() const
+{
+    if (activeSequencerView() != nullptr)
+        return sequencerCollapsed ? 0 : 2;
+    return keyboardCollapsed ? 0 : 1;
+}
+
+// Applies a dragged pane height and moves the window by the same amount, so every other pane
+// keeps its size. If the window can't change (maximized, tiled), the tabs pane absorbs it.
+void VirtualJVEditor::resizePane(int &pane, int wanted, int minH, int maxH)
+{
+    const int clamped = juce::jlimit(minH, maxH, wanted);
+    const int windowH = dragStartWindowH + (clamped - dragStartValue);
+    pane = clamped;
+    setSize(getWidth(), windowH);
+    resized();
+}
+
+void VirtualJVEditor::resetPaneHeights()
+{
+    const int delta = (VirtualJVProcessor::kDefaultKeyboardPaneH - keyboardPaneH) * (keyboardCollapsed ? 0 : 1)
+                    + (VirtualJVProcessor::kDefaultSequencerPaneH - sequencerPaneH)
+                        * ((activeSequencerView() != nullptr && !sequencerCollapsed) ? 1 : 0);
+    keyboardPaneH = VirtualJVProcessor::kDefaultKeyboardPaneH;
+    sequencerPaneH = VirtualJVProcessor::kDefaultSequencerPaneH;
+    processor.setPaneHeights(keyboardPaneH, sequencerPaneH);
+    setSize(getWidth(), getHeight() + delta);
+    resized();
+}
+
 void VirtualJVEditor::resized()
 {
-    const int handleH = 18;
-    const int keyboardH = keyboardCollapsed ? 0 : (int)VirtualKeyboard::kRefH;
+    const int handleH = kHandleH;
+    int keyboardH = keyboardCollapsed ? 0 : keyboardPaneH;
     // Second handle+drawer, only when the sequencer is actually turned on (see
     // refreshSequencerVisibility()) - both stay 0 otherwise, so the layout below is identical
     // to before this feature existed whenever it's off.
     auto *sequencerView = activeSequencerView();
     const int sequencerHandleH = sequencerView ? handleH : 0;
-    const int sequencerH = (sequencerView && !sequencerCollapsed) ? (int)JivSequencerPanel::kRefH : 0;
+    int sequencerH = (sequencerView && !sequencerCollapsed) ? sequencerPaneH : 0;
+    const int gripH = gripTarget() != 0 ? kGripH : 0;
 
-    // Top strip height depends on processor.displayMode (see PluginEditor.h's own comment on
-    // lcd/panelDisplay): LcdOnly is the fixed 820x100 it's always been; the panel modes scale
-    // with the window's own current width instead, spanning it fully (unlike the tabs below,
-    // which stay pinned at 820 - see the constructor's setResizeLimits() comment).
-    int topAreaH;
+    const int topAreaH = topAreaHeight();
     if (processor.displayMode == VirtualJVProcessor::DisplayMode::LcdOnly)
-    {
-        topAreaH = 100;
         lcd.setBounds(0, 0, 820, 100);
-    }
     else
-    {
-        topAreaH = (int)panelDisplay.heightForWidth((float)getWidth());
         panelDisplay.setBounds(0, 0, getWidth(), topAreaH);
+
+    const int fixedH = topAreaH + handleH + handleH + keyboardH + sequencerHandleH + sequencerH + gripH;
+    const int tabsH = tabsCollapsed ? 0 : juce::jmax(0, getHeight() - fixedH);
+    if (tabsCollapsed)
+    {
+        // Nothing to absorb the window's spare height: the last open drawer does.
+        const int extra = juce::jmax(0, getHeight() - fixedH);
+        if (sequencerH > 0) sequencerH += extra;
+        else if (keyboardH > 0) keyboardH += extra;
     }
 
-    const int tabsH = juce::jmax(0, getHeight() - topAreaH - handleH - keyboardH - sequencerHandleH - sequencerH);
-
-    tabs.setBounds(0, topAreaH, 820, tabsH);
-    keyboardHandle.setBounds(0, topAreaH + tabsH, getWidth(), handleH);
-    virtualKeyboard.setBounds(0, topAreaH + tabsH + handleH, getWidth(), keyboardH);
+    tabsHandle.setBounds(0, topAreaH, getWidth(), handleH);
+    tabs.setBounds(0, topAreaH + handleH, 820, tabsH);
+    const int keyboardHandleY = topAreaH + handleH + tabsH;
+    keyboardHandle.setBounds(0, keyboardHandleY, getWidth(), handleH);
+    virtualKeyboard.setBounds(0, keyboardHandleY + handleH, getWidth(), keyboardH);
+    int y = keyboardHandleY + handleH + keyboardH;
     if (sequencerView)
     {
-        const int seqY = topAreaH + tabsH + handleH + keyboardH;
-        sequencerHandle.setBounds(0, seqY, getWidth(), sequencerHandleH);
-        sequencerView->setBounds(0, seqY + sequencerHandleH, getWidth(), sequencerH);
+        sequencerHandle.setBounds(0, y, getWidth(), sequencerHandleH);
+        sequencerView->setBounds(0, y + sequencerHandleH, getWidth(), sequencerH);
+        y += sequencerHandleH + sequencerH;
     }
+    bottomGrip.setVisible(gripH > 0);
+    bottomGrip.setBounds(0, y, getWidth(), gripH);
 }
 
 void VirtualJVEditor::refreshSequencerVisibility()
@@ -293,20 +396,27 @@ void VirtualJVEditor::refreshSequencerVisibility()
     const bool wantIt = processor.wrapperType == juce::AudioProcessor::wrapperType_Standalone
                          && processor.getSequencerEnabled();
 
-    const bool wantGrid = wantIt && processor.getSequencerGridMode();
+    const bool wantRetro = wantIt && processor.getSequencerRetroMode();
+    const bool wantGrid = wantIt && !wantRetro && processor.getSequencerGridMode();
 
-    // Swap the view when the grid/strip choice changed (or drop both when turned off) - the
-    // engine and every song live in the processor, so a view is just a lens and can be
-    // destroyed/recreated freely.
-    if (!wantIt || wantGrid != (sequencerGridPanel != nullptr))
+    // Swap the view when the choice changed (or drop everything when turned off) - the engine
+    // and every song live in the processor, so a view is just a lens and can be destroyed/
+    // recreated freely.
+    if (!wantIt || wantRetro != (sequencerRetroPanel != nullptr) || wantGrid != (sequencerGridPanel != nullptr))
     {
         sequencerPanel.reset();
         sequencerGridPanel.reset();
+        sequencerRetroPanel.reset();
     }
 
     if (wantIt && activeSequencerView() == nullptr)
     {
-        if (wantGrid)
+        if (wantRetro)
+        {
+            sequencerRetroPanel = std::make_unique<JivSequencerRetroPanel>(processor);
+            addAndMakeVisible(*sequencerRetroPanel);
+        }
+        else if (wantGrid)
         {
             sequencerGridPanel = std::make_unique<JivSequencerGridPanel>(processor);
             addAndMakeVisible(*sequencerGridPanel);
@@ -371,4 +481,44 @@ void VirtualJVEditor::parentHierarchyChanged()
         if (auto *dw = dynamic_cast<juce::DocumentWindow *>(safeThis->getTopLevelComponent()))
             if (!dw->isUsingNativeTitleBar()) dw->setUsingNativeTitleBar(true);
     });
+}
+
+// The app-wide right-click menu: "LCD" (colours) and, when the drawer exists, "Sequencer > Classic /
+// Retro / Grid" (shared with the D-110 project's front ends - see
+// SequencerViewMenu.h). Nothing is added when the drawer isn't there (plugin builds, or the
+// sequencer switched off in Settings).
+void VirtualJVEditor::appendSequencerMenu(juce::PopupMenu &menu)
+{
+    if (processor.wrapperType != juce::AudioProcessor::wrapperType_Standalone
+        || !processor.getSequencerEnabled())
+        return;
+
+    menu.addSeparator();
+    seqview::addSubmenu(menu, seqview::current(processor),
+                        [this](seqview::View v) { processor.setSequencerView(v); });
+}
+
+void VirtualJVEditor::showAppContextMenu()
+{
+    juce::PopupMenu menu;
+    lcd.addColorSubmenu(menu);
+    appendSequencerMenu(menu);
+    menu.addSeparator();
+    menu.addItem("Reset panel heights", [this] { resetPaneHeights(); });
+    menu.showMenuAsync(juce::PopupMenu::Options().withMousePosition());
+}
+
+void VirtualJVEditor::mouseDown(const juce::MouseEvent &e)
+{
+    if (e.mods.isPopupMenu())
+        showAppContextMenu();
+}
+
+// The retro view's D-pad keys (EXIT/ENTER/arrows). Key events go to whichever component has
+// focus and bubble up its parents when unconsumed; clicking a piano key (or anything else)
+// moves focus away from the retro panel, so it is also offered every key here - the nearest
+// shared ancestor. Same idea as the D-110 editor's own keyPressed().
+bool VirtualJVEditor::keyPressed(const juce::KeyPress &key)
+{
+    return sequencerRetroPanel != nullptr && sequencerRetroPanel->keyPressed(key);
 }

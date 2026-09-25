@@ -48,7 +48,14 @@ public:
     // PanelSkin's embedded live LCD (Panel Compact/Full display mode - see PanelSkin.h) can pop
     // the exact same colour picker on a right-click over the photo's own LCD opening, instead of
     // only being reachable through this always-820x100 standalone component.
+    // Right-click on the LCD: runs onContextMenu when the owner set one (VirtualJVEditor shows
+    // its app-wide menu, which holds the colours under "LCD"), else pops up the colour list alone.
     void showColorMenu();
+
+    // Adds an "LCD" submenu with the colour choices to `menu`.
+    void addColorSubmenu(juce::PopupMenu &menu);
+
+    std::function<void()> onContextMenu;
 
 private:
     class RedrawTimer : public juce::Timer
